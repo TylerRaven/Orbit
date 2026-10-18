@@ -1,9 +1,8 @@
 #!/bin/zsh
 # Publishes a new Orbit version that existing copies will offer to update to.
 #   scripts/release.sh 1.1
-# Bumps the version, builds build/Orbit.dmg, commits and tags v1.1. With GITHUB_TOKEN set
-# (a token that can write to the repo), it also pushes and creates the GitHub release with the dmg;
-# otherwise it tells you what to upload by hand.
+# Bumps the version, builds build/Orbit.dmg, commits and tags v1.1, then pushes and publishes the
+# GitHub release with the dmg attached (needs the GitHub CLI: brew install gh && gh auth login).
 set -euo pipefail
 cd "${0:A:h}/.."
 
@@ -27,23 +26,18 @@ git commit -q -m "Orbit $VERSION" "$PLIST"
 git tag "v$VERSION"
 echo "✓ Orbit $VERSION committed and tagged v$VERSION"
 
-if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+GH=$(command -v gh || echo /opt/homebrew/bin/gh)
+if ! "$GH" auth status >/dev/null 2>&1; then
   cat <<EOF
 
-Next: push, then publish the release on GitHub.
+Not logged in to GitHub, so nothing was published. Log in with  gh auth login  then run:
   git push && git push origin v$VERSION
-  Open https://github.com/$REPO/releases/new, pick tag v$VERSION, and attach build/Orbit.dmg.
+  gh release create v$VERSION build/Orbit.dmg --title "Orbit $VERSION" --generate-notes
 EOF
   exit 0
 fi
 
-git push -q && git push -q origin "v$VERSION"
-echo "▸ Creating GitHub release"
-API=https://api.github.com/repos/$REPO
-AUTH=(-H "Authorization: Bearer $GITHUB_TOKEN" -H "Accept: application/vnd.github+json")
-UPLOAD=$(curl -fsS "${AUTH[@]}" -X POST "$API/releases" \
-  -d "{\"tag_name\":\"v$VERSION\",\"name\":\"Orbit $VERSION\",\"generate_release_notes\":true}" \
-  | plutil -extract upload_url raw -o - - | sed 's/{.*}//')
-curl -fsS "${AUTH[@]}" -H "Content-Type: application/x-apple-diskimage" \
-  --data-binary @build/Orbit.dmg "$UPLOAD?name=Orbit.dmg" >/dev/null
-echo "✓ Released https://github.com/$REPO/releases/tag/v$VERSION"
+echo "▸ Publishing"
+git push -q origin HEAD && git push -q origin "v$VERSION"
+"$GH" release create "v$VERSION" build/Orbit.dmg --repo "$REPO" --title "Orbit $VERSION" --generate-notes
+echo "✓ Released Orbit $VERSION — every copy will offer it within a day (or via Orbit ▸ Check for Updates…)"
