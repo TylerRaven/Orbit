@@ -81,7 +81,7 @@ final class Updater {
         }
         status = .checking
         do {
-            var req = URLRequest(url: api, timeoutInterval: 20)
+            var req = URLRequest(url: api, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20)
             req.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             req.setValue("Orbit/\(Self.currentVersion)", forHTTPHeaderField: "User-Agent")
             let (data, response) = try await URLSession.shared.data(for: req)
