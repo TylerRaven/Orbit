@@ -22,6 +22,7 @@ struct ContentView: View {
 
     /// Color everything glows with: the page's color, or the accent on the start page.
     private var pageHue: Double {
+        if browser.selected?.isPrivate == true { return Tab.privateHue }
         guard let tab = browser.selected, !tab.isBlank else { return accent.hue }
         return tab.glowHue
     }
@@ -226,11 +227,13 @@ struct ContentView: View {
 
     private var addressBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: browser.selected?.url?.scheme == "https" ? "lock.fill" : "magnifyingglass")
+            Image(systemName: browser.selected?.isPrivate == true ? "eye.slash.fill"
+                  : browser.selected?.url?.scheme == "https" ? "lock.fill" : "magnifyingglass")
                 .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(.secondary)
-                .frame(width: 12)
-            TextField("Search", text: addressState.projectedValue)
+                .foregroundStyle(browser.selected?.isPrivate == true ? AnyShapeStyle(Color(hue: Tab.privateHue, saturation: 0.6, brightness: 1)) : AnyShapeStyle(.secondary))
+                .frame(width: 14)
+                .help(browser.selected?.isPrivate == true ? "Private tab: nothing is saved" : "")
+            TextField(browser.selected?.isPrivate == true ? "Search privately" : "Search", text: addressState.projectedValue)
                 .textFieldStyle(.plain)
                 .focused($focus, equals: .address)
                 .onSubmit { submit(address) }
@@ -322,7 +325,8 @@ struct ContentView: View {
             ZStack {
                 WebViewHost(webView: tab.webView)
                 if tab.isBlank {
-                    StartPage(focus: $focus, accent: accent, onSubmit: submit)
+                    StartPage(focus: $focus, accent: tab.isPrivate ? .purple : accent,
+                              isPrivate: tab.isPrivate, onSubmit: submit)
                         .id(tab.id) // fresh search box per tab
                 }
             }
@@ -343,6 +347,7 @@ struct TopTab: View {
     var body: some View {
         HStack(spacing: 7) {
             Favicon(tab: tab)
+            if tab.isPrivate { PrivateBadge() }
             Text(tab.displayTitle)
                 .font(.system(size: 12))
                 .lineLimit(1)
@@ -405,11 +410,24 @@ struct PinnedTab: View {
     }
 }
 
+struct PrivateBadge: View {
+    var body: some View {
+        Image(systemName: "eye.slash.fill")
+            .font(.system(size: 9, weight: .bold))
+            .foregroundStyle(Color(hue: Tab.privateHue, saturation: 0.55, brightness: 1))
+            .help("Private tab")
+    }
+}
+
 struct TabMenu: View {
     let tab: Tab
 
     var body: some View {
         Button(tab.isPinned ? "Unpin Tab" : "Pin Tab") { Browser.shared.togglePin(tab) }
+            .disabled(tab.isPrivate)
+        if let url = tab.url, !tab.isPrivate {
+            Button("Open in Private Tab") { Browser.shared.newTab(url: url, isPrivate: true) }
+        }
         Button("Reload") { tab.webView.reload() }
         Button("Duplicate") { Browser.shared.newTab(url: tab.url) }
         Button("Copy Link") {
@@ -431,6 +449,7 @@ struct TabRow: View {
     var body: some View {
         HStack(spacing: 9) {
             Favicon(tab: tab)
+            if tab.isPrivate { PrivateBadge() }
             Text(tab.displayTitle)
                 .lineLimit(1)
                 .truncationMode(.tail)

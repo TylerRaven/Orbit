@@ -19,25 +19,42 @@ final class Browser {
 
     @ObservationIgnored private var restoring = false
     @ObservationIgnored private static var blockRules: WKContentRuleList?
+    @ObservationIgnored private static var privacyRules: WKContentRuleList?
+    /// In-memory cookies/storage shared by private tabs; thrown away when the last one closes.
+    @ObservationIgnored private var privateStore: WKWebsiteDataStore?
 
     private init() {}
 
     // MARK: Configuration
 
-    static func makeConfiguration() -> WKWebViewConfiguration {
+    func makeConfiguration(isPrivate: Bool) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
-        config.websiteDataStore = .default()
+        if isPrivate {
+            if privateStore == nil { privateStore = .nonPersistent() }
+            config.websiteDataStore = privateStore!
+        } else {
+            config.websiteDataStore = .default()
+        }
         // Present as Safari so sites serve their full desktop experience.
         config.applicationNameForUserAgent = "Version/26.0 Safari/605.1.15"
         config.preferences.isElementFullscreenEnabled = true
         config.preferences.isFraudulentWebsiteWarningEnabled = true
         config.mediaTypesRequiringUserActionForPlayback = []
         config.allowsAirPlayForMediaPlayback = true
-        if let rules = blockRules, UserDefaults.standard.bool(forKey: Pref.blockAds) {
+        if let rules = Self.blockRules, isPrivate || UserDefaults.standard.bool(forKey: Pref.blockAds) {
             config.userContentController.add(rules)
         }
+        if isPrivate { Self.addPrivacyProtections(to: config.userContentController) }
         PasswordAgent.shared.install(in: config.userContentController)
         return config
+    }
+
+    /// Private tabs: no third-party cookies, and tell sites not to sell or share data (Global Privacy Control).
+    private static func addPrivacyProtections(to controller: WKUserContentController) {
+        if let privacyRules { controller.add(privacyRules) }
+        controller.addUserScript(WKUserScript(
+            source: "try { Object.defineProperty(Navigator.prototype, 'globalPrivacyControl', { get: () => true }); } catch (_) {}",
+            injectionTime: .atDocumentStart, forMainFrameOnly: false))
     }
 
     /// Compiles the ad/tracker block list once, then applies it to every open tab.
@@ -55,12 +72,22 @@ final class Browser {
                 self.setBlocking(UserDefaults.standard.bool(forKey: Pref.blockAds))
             }
         }
+        let privacy = #"[{"trigger":{"url-filter":".*","load-type":["third-party"]},"action":{"type":"block-cookies"}}]"#
+        WKContentRuleListStore.default().compileContentRuleList(
+            forIdentifier: "orbit-private-v1", encodedContentRuleList: privacy
+        ) { list, _ in
+            MainActor.assumeIsolated {
+                guard let list else { return }
+                Browser.privacyRules = list
+                for tab in self.tabs where tab.isPrivate { tab.webView.configuration.userContentController.add(list) }
+            }
+        }
     }
 
     /// Turns the blocker on/off for every open tab; takes effect on the next page load.
     func setBlocking(_ on: Bool) {
         guard let rules = Browser.blockRules else { return }
-        for tab in tabs {
+        for tab in tabs where !tab.isPrivate { // private tabs always block
             let controller = tab.webView.configuration.userContentController
             controller.remove(rules)
             if on { controller.add(rules) }
@@ -71,8 +98,8 @@ final class Browser {
 
     @discardableResult
     func newTab(url: URL? = nil, configuration: WKWebViewConfiguration? = nil, select: Bool = true,
-                pinned: Bool = false) -> Tab {
-        let tab = Tab(browser: self, configuration: configuration)
+                pinned: Bool = false, isPrivate: Bool = false) -> Tab {
+        let tab = Tab(browser: self, configuration: configuration, isPrivate: isPrivate)
         tab.isPinned = pinned
         if pinned {
             tabs.insert(tab, at: tabs.firstIndex { !$0.isPinned } ?? tabs.count)
@@ -94,6 +121,9 @@ final class Browser {
         guard let i = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         tabs.remove(at: i)
         tab.teardown()
+        if tab.isPrivate && !tabs.contains(where: \.isPrivate) {
+            privateStore = nil // last private tab gone: its cookies and storage go with it
+        }
         if tabs.isEmpty {
             newTab()
         } else if selectedID == tab.id {
@@ -109,7 +139,7 @@ final class Browser {
     var pinnedCount: Int { tabs.filter(\.isPinned).count }
 
     func togglePin(_ tab: Tab) {
-        guard let i = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        guard !tab.isPrivate, let i = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
         tabs.remove(at: i)
         tab.isPinned.toggle()
         // Pinned tabs live at the front; unpinning drops it right after them.
@@ -165,7 +195,7 @@ final class Browser {
 
     func saveSession() {
         guard !restoring else { return }
-        let urls = tabs.filter { !$0.isPinned }.compactMap { $0.url?.absoluteString }
+        let urls = tabs.filter { !$0.isPinned && !$0.isPrivate }.compactMap { $0.url?.absoluteString }
         UserDefaults.standard.set(urls, forKey: "sessionTabs")
         UserDefaults.standard.set(tabs.filter(\.isPinned).compactMap { $0.url?.absoluteString }, forKey: "pinnedTabs")
         UserDefaults.standard.set(tabs.firstIndex { $0.id == selectedID } ?? 0, forKey: "sessionSelected")

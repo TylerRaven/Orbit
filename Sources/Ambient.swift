@@ -21,12 +21,16 @@ enum AmbientLevel: String, CaseIterable, Identifiable {
 extension Tab {
     /// The page's color: its theme-color, a known site color, or one derived from the domain.
     var glowHue: Double {
+        if isPrivate { return Self.privateHue }
         if let themeHue { return themeHue }
         if let host = url?.host() { return WallpaperMood.siteHue(host) }
         return (Accent(rawValue: UserDefaults.standard.string(forKey: Pref.accent) ?? "") ?? .blue).hue
     }
 
     var glowColor: Color { Color(hue: glowHue, saturation: 0.75, brightness: 1) }
+
+    /// Private tabs always glow violet so you can tell at a glance.
+    static let privateHue = 0.76
 
     /// Parses a CSS theme-color; returns nil for greys so they fall back to the site color.
     static func hue(fromCSS css: String) -> Double? {

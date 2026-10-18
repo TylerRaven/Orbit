@@ -30,6 +30,7 @@ struct QuickLink: Codable, Hashable, Identifiable {
 struct StartPage: View {
     var focus: FocusState<Field?>.Binding
     let accent: Accent
+    var isPrivate = false
     let onSubmit: (String) -> Void
 
     @AppStorage(Pref.wallpaper) private var wallpaper = WallpaperStyle.aurora.rawValue
@@ -58,6 +59,7 @@ struct StartPage: View {
 
             VStack(spacing: 26) {
                 Spacer(minLength: 20)
+                if isPrivate { privateNote }
                 if showClock { clock }
                 searchField
                 Text("Tip: start with ? to ask Orbit AI")
@@ -100,6 +102,22 @@ struct StartPage: View {
     }
 
     // MARK: Pieces
+
+    private var privateNote: some View {
+        VStack(spacing: 6) {
+            Label("Private tab", systemImage: "eye.slash.fill")
+                .font(.system(size: 15, weight: .semibold, design: .rounded))
+            Text("No history, no saved session, no password saving. Cookies and site data vanish when you close your last private tab. Ads, trackers, third-party cookies and tracking links are blocked.")
+                .font(.system(size: 12))
+                .multilineTextAlignment(.center)
+                .opacity(0.8)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: 440)
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 14)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
 
     private var clock: some View {
         TimelineView(.periodic(from: .now, by: 1)) { ctx in
@@ -376,11 +394,10 @@ final class Weather {
         if let loaded, loaded.city == city, Date.now.timeIntervalSince(loaded.at) < 1200, report != nil { return }
         failed = false
         do {
-            // Apple Maps turns the city name into coordinates (no location permission needed).
-            let item = try await MKGeocodingRequest(addressString: city)?.mapItems.first
-            guard let item else { failed = true; report = nil; return }
-            let coord = item.location.coordinate
-            let place = (name: item.name ?? city, latitude: coord.latitude, longitude: coord.longitude)
+            guard let place = try await Self.place(for: city) else {
+                failed = report == nil
+                return
+            }
 
             var fc = URLComponents(string: "https://api.open-meteo.com/v1/forecast")!
             fc.queryItems = [
@@ -399,8 +416,27 @@ final class Weather {
                             symbol: Self.symbol(code: f.current.weather_code, day: f.current.is_day == 1))
             loaded = (city, .now)
         } catch {
-            failed = true
+            failed = report == nil // keep showing the last good reading if a refresh fails
         }
+    }
+
+    /// City → coordinates via Apple Maps, remembered so it only has to work once per city.
+    private static func place(for city: String) async throws -> (name: String, latitude: Double, longitude: Double)? {
+        let key = "weatherPlace." + city.lowercased()
+        if let saved = UserDefaults.standard.array(forKey: key), saved.count == 3,
+           let name = saved[0] as? String, let lat = saved[1] as? Double, let lon = saved[2] as? Double {
+            return (name, lat, lon)
+        }
+        var item: MKMapItem?
+        for attempt in 0..<3 where item == nil {
+            if attempt > 0 { try await Task.sleep(for: .seconds(2)) }
+            item = try? await MKGeocodingRequest(addressString: city)?.mapItems.first
+        }
+        guard let item else { return nil }
+        let c = item.location.coordinate
+        let name = item.name ?? city
+        UserDefaults.standard.set([name, c.latitude, c.longitude], forKey: key)
+        return (name, c.latitude, c.longitude)
     }
 
     private static func symbol(code: Int, day: Bool) -> String {

@@ -117,7 +117,8 @@ final class PasswordAgent: NSObject, WKScriptMessageHandler {
             if !username.isEmpty { pendingUsername[host] = username }
             return
         }
-        guard kind == "submit",
+        let fromPrivateTab = Browser.shared.tabs.first { $0.webView === message.webView }?.isPrivate ?? true
+        guard kind == "submit", !fromPrivateTab,
               UserDefaults.standard.bool(forKey: Pref.offerPasswords),
               let password = body["password"] as? String, !password.isEmpty,
               !Self.neverSave.contains(host) else { return }

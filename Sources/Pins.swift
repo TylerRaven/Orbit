@@ -131,6 +131,9 @@ struct PinChip: View {
         .contextMenu {
             Button("Open") { open(newTab: false) }
             Button("Open in New Tab") { open(newTab: true) }
+            Button("Open in Private Tab") {
+                if let url = URL(string: pin.url) { Browser.shared.newTab(url: url, isPrivate: true) }
+            }
             Button("Copy Link") {
                 NSPasteboard.general.clearContents()
                 NSPasteboard.general.setString(pin.url, forType: .string)

@@ -156,6 +156,7 @@ struct CommandPalette: View {
         let tab = b.selected
         var list: [PaletteItem] = [
             PaletteItem(icon: "plus.square", title: "New Tab", subtitle: "⌘T") { b.newTab() },
+            PaletteItem(icon: "eye.slash", title: "New Private Tab", subtitle: "⌘⇧N") { b.newTab(isPrivate: true) },
             PaletteItem(icon: "magnifyingglass", title: "Find in Page", subtitle: "⌘F") { b.showFind = true },
             PaletteItem(icon: "pin.circle", title: Pins.isPinned(tab?.url) ? "Unpin This Page" : "Pin This Page",
                         subtitle: "⌘D") { Pins.toggleCurrentPage() },

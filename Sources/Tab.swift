@@ -8,6 +8,8 @@ import WebKit
 final class Tab: NSObject, Identifiable {
     let id = UUID()
     let webView: WKWebView
+    /// Private tabs keep nothing: no history, no saved session, no password offers, throwaway cookies.
+    let isPrivate: Bool
 
     var title = ""
     var url: URL?
@@ -35,9 +37,10 @@ final class Tab: NSObject, Identifiable {
 
     var isBlank: Bool { url == nil && !isLoading }
 
-    init(browser: Browser, configuration: WKWebViewConfiguration? = nil) {
+    init(browser: Browser, configuration: WKWebViewConfiguration? = nil, isPrivate: Bool = false) {
         self.browser = browser
-        webView = OrbitWebView(frame: .zero, configuration: configuration ?? Browser.makeConfiguration())
+        self.isPrivate = isPrivate
+        webView = OrbitWebView(frame: .zero, configuration: configuration ?? browser.makeConfiguration(isPrivate: isPrivate))
         super.init()
 
         webView.navigationDelegate = self
@@ -109,7 +112,7 @@ final class Tab: NSObject, Identifiable {
 extension Tab: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         refreshFavicon()
-        if let url = webView.url { History.shared.record(url: url, title: webView.title ?? "") }
+        if !isPrivate, let url = webView.url { History.shared.record(url: url, title: webView.title ?? "") }
         glowPulse += 1
         if browser?.selectedID == id {
             WallpaperMood.shared.settle()
@@ -129,6 +132,14 @@ extension Tab: WKNavigationDelegate {
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
                  preferences: WKWebpagePreferences) async -> (WKNavigationActionPolicy, WKWebpagePreferences) {
         if navigationAction.shouldPerformDownload { return (.download, preferences) }
+
+        // Private tabs strip tracking junk (utm_, fbclid, gclid…) from links before loading them.
+        if isPrivate, navigationAction.targetFrame?.isMainFrame == true,
+           (navigationAction.request.httpMethod ?? "GET") == "GET",
+           let url = navigationAction.request.url, let clean = Tracking.clean(url) {
+            webView.load(URLRequest(url: clean))
+            return (.cancel, preferences)
+        }
 
         // Cmd-click / middle-click opens a background tab.
         if navigationAction.navigationType == .linkActivated,
@@ -171,7 +182,7 @@ extension Tab: WKUIDelegate {
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {
         // target=_blank and window.open become new tabs.
         guard let browser else { return nil }
-        let tab = browser.newTab(configuration: configuration, select: true)
+        let tab = browser.newTab(configuration: configuration, select: true, isPrivate: isPrivate)
         return tab.webView
     }
 

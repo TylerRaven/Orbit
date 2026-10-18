@@ -48,6 +48,8 @@ struct BrowserCommands: Commands {
         CommandGroup(replacing: .newItem) {
             Button("New Tab") { browser.newTab() }
                 .keyboardShortcut("t")
+            Button("New Private Tab") { browser.newTab(isPrivate: true) }
+                .keyboardShortcut("n", modifiers: [.command, .shift])
             Button("Open Location…") { browser.focusAddressRequest += 1 }
                 .keyboardShortcut("l")
             Button("Pin / Unpin This Page") { Pins.toggleCurrentPage() }
