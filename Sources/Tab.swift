@@ -19,6 +19,11 @@ final class Tab: NSObject, Identifiable {
     var canGoBack = false
     var canGoForward = false
     var isPinned = false
+    var spaceID: UUID?
+    /// Link under the mouse, for the status pill.
+    var hoveredLink: URL?
+    /// A real (unmuted, visible) video is playing, so picture-in-picture is offered.
+    var isPlayingVideo = false
     /// From the page's <meta name="theme-color">, when it has a real color.
     var themeHue: Double?
     /// Bumped whenever a page finishes opening, to fire the tab glow.

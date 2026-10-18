@@ -142,6 +142,19 @@ struct CommandPalette: View {
 
         items += commands().filter { q.isEmpty || $0.title.lowercased().contains(lower) }
 
+        for space in SpaceStore.shared.spaces where space.id != browser.currentSpaceID {
+            if q.isEmpty || space.name.lowercased().contains(lower) || "space".contains(lower) {
+                items.append(PaletteItem(icon: space.icon, title: "Switch to \(space.name)", subtitle: "Space") {
+                    Browser.shared.switchSpace(to: space.id)
+                })
+            }
+        }
+        if let tab = browser.selected, tab.isPlayingVideo {
+            items.insert(PaletteItem(icon: "pip.enter", title: "Picture in Picture") {
+                PageAgent.shared.pictureInPicture(tab)
+            }, at: 0)
+        }
+
         for entry in History.shared.search(q, limit: q.isEmpty ? 5 : 8) {
             items.append(PaletteItem(icon: "clock.arrow.circlepath",
                                      title: entry.title.isEmpty ? entry.url : entry.title,
@@ -161,6 +174,11 @@ struct CommandPalette: View {
             PaletteItem(icon: "rectangle.split.2x1", title: b.visibleSplit == nil ? "Split View" : "Close Split View",
                         subtitle: "⌃⌘S") { b.toggleSplitView() },
             PaletteItem(icon: "clock.arrow.circlepath", title: "Show History", subtitle: "⌘Y") { b.showHistory = true },
+            PaletteItem(icon: "square.stack.3d.up", title: "New Space") {
+                let space = SpaceStore.shared.add()
+                b.switchSpace(to: space.id)
+                b.editingSpace = space
+            },
             PaletteItem(icon: "arrow.down.circle", title: "Downloads", subtitle: "⌥⌘L") { Downloads.shared.showPanel = true },
             PaletteItem(icon: "magnifyingglass", title: "Find in Page", subtitle: "⌘F") { b.showFind = true },
             PaletteItem(icon: "pin.circle", title: Pins.isPinned(tab?.url) ? "Unpin This Page" : "Pin This Page",

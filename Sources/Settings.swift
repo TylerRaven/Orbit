@@ -14,6 +14,7 @@ enum Pref {
     static let showPinsBar = "showPinsBar"
     static let musicGlow = "musicGlow"
     static let pageBorder = "pageBorder"
+    static let autoPiP = "autoPiP"
 
     // Start page
     static let wallpaper = "wallpaper"
@@ -41,6 +42,7 @@ enum Pref {
             ambient: AmbientLevel.vivid.rawValue,
             aiCloud: true,
             showPinsBar: true,
+            autoPiP: true,
             wallpaper: WallpaperStyle.aurora.rawValue,
             wallpaperReactive: true,
             wallpaperIntensity: 0.8,
@@ -134,6 +136,8 @@ struct GeneralSettings: View {
     @AppStorage(Pref.blockAds) private var blockAds = true
     @AppStorage(Pref.offerPasswords) private var offerPasswords = true
     @AppStorage(Pref.aiCloud) private var aiCloud = true
+    @AppStorage(Pref.autoPiP) private var autoPiP = true
+    private let isDefaultState = State(initialValue: DefaultBrowser.isDefault)
 
     var body: some View {
         Form {
@@ -144,6 +148,21 @@ struct GeneralSettings: View {
                 .onChange(of: blockAds) { Browser.shared.setBlocking(blockAds) }
             Toggle("Reopen tabs from last time", isOn: $restoreTabs)
             Toggle("Offer to save passwords", isOn: $offerPasswords)
+            Toggle("Pop videos out when switching tabs", isOn: $autoPiP)
+                .help("Picture in picture: a playing video keeps going in a small floating window.")
+            LabeledContent("Default browser") {
+                if isDefaultState.wrappedValue {
+                    Label("Orbit is your default", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+                } else {
+                    Button("Make Orbit Default") {
+                        DefaultBrowser.makeDefault()
+                        Task {
+                            try? await Task.sleep(for: .seconds(2))
+                            isDefaultState.wrappedValue = DefaultBrowser.isDefault
+                        }
+                    }
+                }
+            }
             LabeledContent("History") {
                 Button("Clear History") { History.shared.clear() }
             }

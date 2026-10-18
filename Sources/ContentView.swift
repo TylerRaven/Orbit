@@ -19,7 +19,8 @@ struct ContentView: View {
 
     @Environment(\.openSettings) private var openSettings
 
-    private var accent: Accent { Accent(rawValue: accentRaw) ?? .blue }
+    /// The current Space's color, or the accent from Settings.
+    private var accent: Accent { Accent(rawValue: browser.currentSpace?.accent ?? accentRaw) ?? .blue }
 
     /// Color everything glows with: the page's color, or the accent on the start page.
     private var pageHue: Double {
@@ -48,6 +49,13 @@ struct ContentView: View {
                         .padding(.top, 110)
                 }
                 .transition(.opacity)
+            } else if let space = browser.editingSpace {
+                ZStack {
+                    Color.black.opacity(0.18)
+                        .onTapGesture { browser.editingSpace = nil }
+                    SpaceEditor(space: space).id(space.id)
+                }
+                .transition(.opacity)
             } else if browser.showHistory {
                 ZStack(alignment: .top) {
                     Color.black.opacity(0.18)
@@ -64,7 +72,15 @@ struct ContentView: View {
         .onChange(of: browser.focusAddressRequest) {
             focus = browser.selected?.isBlank == true ? .start : .address
         }
-        .onChange(of: browser.selectedID) { syncAddress(force: true) }
+        .onChange(of: browser.selectedID) { old, _ in
+            syncAddress(force: true)
+            // Leaving a tab mid-video pops the video out so it keeps playing on top.
+            if UserDefaults.standard.bool(forKey: Pref.autoPiP),
+               let previous = browser.tabs.first(where: { $0.id == old }), previous.isPlayingVideo,
+               browser.visibleSplit.map({ $0.left.id != previous.id && $0.right.id != previous.id }) ?? true {
+                PageAgent.shared.pictureInPicture(previous)
+            }
+        }
         .onChange(of: browser.selected?.url) { syncAddress() }
         .onChange(of: browser.selected?.isLoading) { syncAddress() }
     }
@@ -97,13 +113,15 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {
                 Color.clear.frame(width: 74) // traffic lights
-                ForEach(browser.tabs.filter(\.isPinned)) { tab in
+                SpaceSwitcher()
+                    .padding(.trailing, 4)
+                ForEach(browser.spaceTabs.filter(\.isPinned)) { tab in
                     PinnedTab(tab: tab, selected: tab.id == browser.selectedID)
                 }
-                if browser.pinnedCount > 0 {
+                if browser.spacePinnedCount > 0 {
                     Capsule().fill(Color.primary.opacity(0.15)).frame(width: 1.5, height: 16).padding(.horizontal, 3)
                 }
-                ForEach(browser.tabs.filter { !$0.isPinned }) { tab in
+                ForEach(browser.spaceTabs.filter { !$0.isPinned }) { tab in
                     TopTab(tab: tab, selected: tab.id == browser.selectedID)
                         .frame(minWidth: 44, maxWidth: 220)
                 }
@@ -162,9 +180,9 @@ struct ContentView: View {
                         .padding(.top, 2)
                 }
 
-                if browser.pinnedCount > 0 {
+                if browser.spacePinnedCount > 0 {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {
-                        ForEach(browser.tabs.filter(\.isPinned)) { tab in
+                        ForEach(browser.spaceTabs.filter(\.isPinned)) { tab in
                             PinnedTab(tab: tab, selected: tab.id == browser.selectedID, wide: true)
                         }
                     }
@@ -173,7 +191,7 @@ struct ContentView: View {
 
                 ScrollView {
                     VStack(spacing: 2) {
-                        ForEach(browser.tabs.filter { !$0.isPinned }) { tab in
+                        ForEach(browser.spaceTabs.filter { !$0.isPinned }) { tab in
                             TabRow(tab: tab, selected: tab.id == browser.selectedID)
                         }
                     }
@@ -192,6 +210,8 @@ struct ContentView: View {
                 }
                 .buttonStyle(HoverStyle())
                 .foregroundStyle(.secondary)
+
+                SpaceSwitcher(compact: false)
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 10)
@@ -253,6 +273,15 @@ struct ContentView: View {
                     address = browser.selected?.url?.absoluteString ?? ""
                     focus = nil
                 }
+            if let tab = browser.selected, tab.isPlayingVideo {
+                Button { PageAgent.shared.pictureInPicture(tab) } label: {
+                    Image(systemName: "pip.enter").font(.system(size: 12, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(accent.color)
+                .help("Picture in Picture")
+                .transition(.scale.combined(with: .opacity))
+            }
             if let tab = browser.selected, !tab.logins.isEmpty {
                 Menu {
                     ForEach(tab.logins) { login in
@@ -318,6 +347,29 @@ struct ContentView: View {
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
+            .overlay(alignment: .bottomLeading) {
+                if let link = browser.selected?.hoveredLink, browser.peek == nil {
+                    LinkPill(url: link)
+                        .padding(10)
+                        .transition(.opacity)
+                }
+            }
+            .overlay(alignment: .bottom) {
+                if browser.showDefaultPrompt {
+                    DefaultBrowserPrompt(accent: accent)
+                        .padding(.bottom, 18)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+            }
+            .overlay {
+                if let peek = browser.peek {
+                    PeekPanel(tab: peek, accent: accent)
+                        .transition(.scale(scale: 0.92).combined(with: .opacity))
+                }
+            }
+            .animation(.easeOut(duration: 0.12), value: browser.selected?.hoveredLink)
+            .animation(.spring(duration: 0.35), value: browser.showDefaultPrompt)
+            .animation(.spring(duration: 0.3), value: browser.peek?.id)
             .overlay(alignment: .trailing) {
                 if Assistant.shared.isOpen {
                     AIPanel(accent: accent, tab: browser.selected)
@@ -510,6 +562,13 @@ struct TabMenu: View {
             Button("Close Split View") { Browser.shared.split = nil }
         } else if Browser.shared.selectedID != tab.id {
             Button("Open in Split View") { Browser.shared.splitView(with: tab) }
+        }
+        if SpaceStore.shared.spaces.count > 1 {
+            Menu("Move to Space") {
+                ForEach(SpaceStore.shared.spaces.filter { $0.id != tab.spaceID }) { space in
+                    Button { Browser.shared.move(tab, to: space) } label: { Label(space.name, systemImage: space.icon) }
+                }
+            }
         }
         Button("Reload") { tab.webView.reload() }
         Button("Duplicate") { Browser.shared.newTab(url: tab.url) }
@@ -741,4 +800,65 @@ struct VisualEffect: NSViewRepresentable {
         return v
     }
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
+}
+
+/// Where a hovered link goes, in a small glass pill at the bottom of the page.
+struct LinkPill: View {
+    let url: URL
+
+    var body: some View {
+        let host = url.host() ?? ""
+        let rest = url.absoluteString.components(separatedBy: host).dropFirst().joined(separator: host)
+        (Text(host).fontWeight(.semibold) + Text(rest).foregroundStyle(.secondary))
+            .font(.system(size: 11))
+            .lineLimit(1)
+            .truncationMode(.middle)
+            .padding(.horizontal, 10)
+            .frame(height: 24)
+            .frame(maxWidth: 520, alignment: .leading)
+            .fixedSize(horizontal: true, vertical: false)
+            .glassEffect(.regular, in: Capsule())
+            .allowsHitTesting(false)
+    }
+}
+
+/// ⌥-hover a link: the page opens in a floating glass window over the one you're on.
+struct PeekPanel: View {
+    let tab: Tab
+    let accent: Accent
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.22)
+                .onTapGesture { Browser.shared.closePeek() }
+            GeometryReader { geo in
+                VStack(spacing: 0) {
+                    HStack(spacing: 8) {
+                        Favicon(tab: tab)
+                        Text(tab.displayTitle).font(.system(size: 12, weight: .semibold)).lineLimit(1)
+                        Text(tab.url?.host() ?? "").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                        Spacer()
+                        Button("Open in New Tab") { Browser.shared.promotePeek() }
+                            .buttonStyle(.borderedProminent)
+                            .tint(accent.color)
+                            .controlSize(.small)
+                        NavButton(symbol: "xmark", help: "Close (esc)", enabled: true) { Browser.shared.closePeek() }
+                    }
+                    .padding(.leading, 14)
+                    .padding(.trailing, 6)
+                    .frame(height: 42)
+                    WebViewHost(webView: tab.webView,
+                                corners: .init(bottomLeading: 14, bottomTrailing: 14))
+                        .overlay(alignment: .top) {
+                            if tab.isLoading { ProgressLine(progress: tab.progress, accent: accent) }
+                        }
+                }
+                .frame(width: geo.size.width * 0.78, height: geo.size.height * 0.84)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .shadow(color: .black.opacity(0.35), radius: 30, y: 12)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        .onExitCommand { Browser.shared.closePeek() }
+    }
 }

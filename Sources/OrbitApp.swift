@@ -29,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil,
                                                    queue: .main) { _ in MusicListener.shared.sync() }
             if Browser.shared.tabs.isEmpty { Browser.shared.restoreSession() }
+            DefaultBrowser.considerAsking()
         }
     }
 
@@ -107,6 +108,19 @@ struct BrowserCommands: Commands {
                 }
             }
             .keyboardShortcut("\\")
+        }
+        CommandMenu("Spaces") {
+            ForEach(Array(SpaceStore.shared.spaces.prefix(9).enumerated()), id: \.element.id) { i, space in
+                Button(space.name) { browser.switchSpace(to: space.id) }
+                    .keyboardShortcut(KeyEquivalent(Character("\(i + 1)")), modifiers: .control)
+            }
+            Divider()
+            Button("New Space…") {
+                let space = SpaceStore.shared.add()
+                browser.switchSpace(to: space.id)
+                browser.editingSpace = space
+            }
+            Button("Edit Space…") { browser.editingSpace = browser.currentSpace }
         }
         CommandMenu("Tabs") {
             Button("Pin / Unpin Tab") { if let tab = browser.selected { browser.togglePin(tab) } }

@@ -15,6 +15,22 @@ final class Browser {
     var showPalette = false
     var showFind = false
     var showHistory = false
+    /// Link being previewed with ⌥-hover, in its own temporary web view.
+    var peek: Tab?
+    var showDefaultPrompt = false
+    var editingSpace: Space?
+
+    /// The Space whose tabs are showing.
+    var currentSpaceID: UUID = {
+        let saved = UserDefaults.standard.string(forKey: "currentSpace").flatMap(UUID.init(uuidString:))
+        let spaces = SpaceStore.shared.spaces
+        return spaces.first { $0.id == saved }?.id ?? spaces[0].id
+    }()
+
+    /// Tabs in the current Space, in order.
+    var spaceTabs: [Tab] { tabs.filter { $0.spaceID == currentSpaceID } }
+    var currentSpace: Space? { SpaceStore.shared.space(currentSpaceID) }
+    @ObservationIgnored private var lastSelected: [UUID: UUID] = [:]
 
     /// Two tabs shown side by side. Visible whenever one of them is the selected tab.
     var split: (left: UUID, right: UUID)?
@@ -63,6 +79,7 @@ final class Browser {
         }
         if isPrivate { Self.addPrivacyProtections(to: config.userContentController) }
         PasswordAgent.shared.install(in: config.userContentController)
+        PageAgent.shared.install(in: config.userContentController)
         return config
     }
 
@@ -118,6 +135,7 @@ final class Browser {
                 pinned: Bool = false, isPrivate: Bool = false) -> Tab {
         let tab = Tab(browser: self, configuration: configuration, isPrivate: isPrivate)
         tab.isPinned = pinned
+        tab.spaceID = currentSpaceID
         if pinned {
             tabs.insert(tab, at: tabs.firstIndex { !$0.isPinned } ?? tabs.count)
         } else if let current = selected, let i = tabs.firstIndex(where: { $0.id == current.id }), !select {
@@ -146,12 +164,94 @@ final class Browser {
         if tab.isPrivate && !tabs.contains(where: \.isPrivate) {
             privateStore = nil // last private tab gone: its cookies and storage go with it
         }
-        if tabs.isEmpty {
+        let remaining = spaceTabs
+        if remaining.isEmpty {
             newTab()
         } else if selectedID == tab.id {
-            selectedID = tabs[min(i, tabs.count - 1)].id
+            // Next tab in the same space, else the one before.
+            let next = tabs[i...].first { $0.spaceID == currentSpaceID } ?? remaining.last!
+            selectedID = next.id
         }
         saveSession()
+    }
+
+    // MARK: Spaces
+
+    func switchSpace(to id: UUID) {
+        guard id != currentSpaceID, SpaceStore.shared.space(id) != nil else { return }
+        if let selectedID { lastSelected[currentSpaceID] = selectedID }
+        currentSpaceID = id
+        UserDefaults.standard.set(id.uuidString, forKey: "currentSpace")
+        let inSpace = spaceTabs
+        if let last = lastSelected[id], inSpace.contains(where: { $0.id == last }) {
+            selectedID = last
+        } else if let first = inSpace.first(where: { !$0.isPinned }) ?? inSpace.first {
+            selectedID = first.id
+        } else {
+            newTab()
+        }
+        WallpaperMood.shared.pulse(0.8)
+        saveSession()
+    }
+
+    func switchSpace(index: Int) {
+        let spaces = SpaceStore.shared.spaces
+        if spaces.indices.contains(index) { switchSpace(to: spaces[index].id) }
+    }
+
+    func move(_ tab: Tab, to space: Space) {
+        guard tab.spaceID != space.id else { return }
+        let wasSelected = tab.id == selectedID
+        tab.spaceID = space.id
+        if let split, split.left == tab.id || split.right == tab.id { self.split = nil }
+        if wasSelected {
+            if let next = spaceTabs.first { selectedID = next.id } else { newTab() }
+        }
+        saveSession()
+    }
+
+    /// Deleting a space moves its tabs into the first remaining space.
+    func deleteSpace(_ space: Space) {
+        let store = SpaceStore.shared
+        guard store.spaces.count > 1 else { return }
+        store.remove(space)
+        let fallback = store.spaces[0].id
+        for tab in tabs where tab.spaceID == space.id { tab.spaceID = fallback }
+        if currentSpaceID == space.id {
+            currentSpaceID = fallback
+            switchSpaceAfterDelete()
+        }
+        saveSession()
+    }
+
+    private func switchSpaceAfterDelete() {
+        UserDefaults.standard.set(currentSpaceID.uuidString, forKey: "currentSpace")
+        if let first = spaceTabs.first { selectedID = first.id } else { newTab() }
+    }
+
+    // MARK: Peek
+
+    func openPeek(_ url: URL, from source: Tab) {
+        if let peek {
+            peek.load(url)
+        } else {
+            let tab = Tab(browser: self, isPrivate: source.isPrivate)
+            tab.spaceID = currentSpaceID
+            tab.load(url)
+            peek = tab
+        }
+    }
+
+    func closePeek() {
+        peek?.teardown()
+        peek = nil
+    }
+
+    /// Turns the preview into a real tab.
+    func promotePeek() {
+        guard let url = peek?.url else { return closePeek() }
+        closePeek()
+        newTab(url: url)
     }
 
     func closeSelected() {
@@ -167,6 +267,7 @@ final class Browser {
         if let i = tabs.firstIndex(where: { $0.id == tab.id }) {
             tabs.remove(at: i)
             tabs.insert(tab, at: min(max(last.index, pinnedCount), tabs.count))
+            tab.spaceID = currentSpaceID
         }
         saveSession()
     }
@@ -188,6 +289,7 @@ final class Browser {
     }
 
     var pinnedCount: Int { tabs.filter(\.isPinned).count }
+    var spacePinnedCount: Int { spaceTabs.filter(\.isPinned).count }
 
     func togglePin(_ tab: Tab) {
         guard !tab.isPrivate, let i = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
@@ -199,21 +301,28 @@ final class Browser {
     }
 
     func select(_ tab: Tab) {
+        if let space = tab.spaceID, space != currentSpaceID {
+            if let selectedID { lastSelected[currentSpaceID] = selectedID }
+            currentSpaceID = space
+            UserDefaults.standard.set(space.uuidString, forKey: "currentSpace")
+        }
         selectedID = tab.id
     }
 
     func select(index: Int) {
-        guard !tabs.isEmpty else { return }
-        selectedID = tabs[min(index, tabs.count - 1)].id
+        let list = spaceTabs
+        guard !list.isEmpty else { return }
+        selectedID = list[min(index, list.count - 1)].id
     }
 
     func selectLast() {
-        selectedID = tabs.last?.id
+        selectedID = spaceTabs.last?.id
     }
 
     func cycle(_ step: Int) {
-        guard let i = tabs.firstIndex(where: { $0.id == selectedID }), !tabs.isEmpty else { return }
-        selectedID = tabs[(i + step + tabs.count) % tabs.count].id
+        let list = spaceTabs
+        guard let i = list.firstIndex(where: { $0.id == selectedID }), !list.isEmpty else { return }
+        selectedID = list[(i + step + list.count) % list.count].id
     }
 
     // MARK: Navigation
@@ -244,29 +353,42 @@ final class Browser {
 
     // MARK: Session
 
+    /// Saved as [{url, space, pinned}] so every tab comes back in its Space.
     func saveSession() {
         guard !restoring else { return }
-        let urls = tabs.filter { !$0.isPinned && !$0.isPrivate }.compactMap { $0.url?.absoluteString }
-        UserDefaults.standard.set(urls, forKey: "sessionTabs")
-        UserDefaults.standard.set(tabs.filter(\.isPinned).compactMap { $0.url?.absoluteString }, forKey: "pinnedTabs")
-        UserDefaults.standard.set(tabs.firstIndex { $0.id == selectedID } ?? 0, forKey: "sessionSelected")
+        let entries: [[String: String]] = tabs.filter { !$0.isPrivate }.compactMap { tab in
+            guard let url = tab.url else { return nil }
+            return ["url": url.absoluteString, "space": tab.spaceID?.uuidString ?? "", "pinned": tab.isPinned ? "1" : "0"]
+        }
+        UserDefaults.standard.set(entries, forKey: "session.v2")
+        UserDefaults.standard.set(spaceTabs.firstIndex { $0.id == selectedID } ?? 0, forKey: "sessionSelected")
     }
 
     func restoreSession() {
         restoring = true
-        let saved = UserDefaults.standard.bool(forKey: Pref.restoreTabs)
-            ? UserDefaults.standard.stringArray(forKey: "sessionTabs") ?? [] : []
-        let urls = saved.compactMap(URL.init(string:))
-        // Pinned tabs always come back, whatever the reopen setting says.
-        for url in (UserDefaults.standard.stringArray(forKey: "pinnedTabs") ?? []).compactMap(URL.init(string:)) {
-            newTab(url: url, select: false, pinned: true)
+        let d = UserDefaults.standard
+        var entries = d.array(forKey: "session.v2") as? [[String: String]]
+        if entries == nil { // carry over tabs saved before Spaces existed
+            entries = (d.stringArray(forKey: "pinnedTabs") ?? []).map { ["url": $0, "pinned": "1"] }
+                + (d.stringArray(forKey: "sessionTabs") ?? []).map { ["url": $0, "pinned": "0"] }
         }
-        for url in urls { newTab(url: url, select: false) }
+        let reopenAll = d.bool(forKey: Pref.restoreTabs)
+        let home = currentSpaceID
+        for entry in entries ?? [] {
+            guard let url = entry["url"].flatMap(URL.init(string:)) else { continue }
+            let pinned = entry["pinned"] == "1"
+            // Pinned tabs always come back, whatever the reopen setting says.
+            guard pinned || reopenAll else { continue }
+            let space = entry["space"].flatMap(UUID.init(uuidString:)).flatMap { SpaceStore.shared.space($0)?.id } ?? home
+            currentSpaceID = space
+            newTab(url: url, select: false, pinned: pinned)
+        }
+        currentSpaceID = home
         restoring = false
-        if tabs.isEmpty {
+        if spaceTabs.isEmpty {
             newTab()
         } else {
-            select(index: UserDefaults.standard.integer(forKey: "sessionSelected"))
+            select(index: d.integer(forKey: "sessionSelected"))
         }
     }
 }
