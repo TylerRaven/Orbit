@@ -144,30 +144,49 @@ struct AmbientBackdrop: View {
 }
 
 /// A flash of the page's color around a shape whenever a page finishes opening.
+/// With `fadesDown`, the light hugs the top edge and melts away partway down the sides
+/// instead of ringing the whole shape.
 struct PageGlowPulse: ViewModifier {
     let trigger: Int
     let hue: Double
     let radius: CGFloat
+    var fadesDown = false
 
     func body(content: Content) -> some View {
         let level = AmbientLevel.current.strength
-        let color = Color(hue: hue, saturation: 0.75, brightness: 1)
+        let color = Color(hue: hue, saturation: 0.7, brightness: 1)
+        let shape = RoundedRectangle(cornerRadius: radius, style: .continuous)
         content.keyframeAnimator(initialValue: 0.0, trigger: trigger) { view, v in
-            view
-                .shadow(color: color.opacity(0.8 * v * level), radius: 4 + 26 * v)
-                .overlay(
-                    ZStack {
-                        RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .strokeBorder(color.opacity(0.6 * v * level), lineWidth: 10)
-                            .blur(radius: 8)
-                        RoundedRectangle(cornerRadius: radius, style: .continuous)
-                            .strokeBorder(color.opacity(0.85 * v * level), lineWidth: 1.5)
+            view.overlay(
+                ZStack {
+                    // Outer bloom, drawn from the edge so it can be masked along with the rest.
+                    shape.stroke(color.opacity(0.45 * v * level), lineWidth: 6)
+                        .blur(radius: 6 + 16 * v)
+                    shape.strokeBorder(color.opacity(0.35 * v * level), lineWidth: 8)
+                        .blur(radius: 7)
+                    shape.strokeBorder(
+                        LinearGradient(colors: [.white.opacity(0.5), color], startPoint: .top, endPoint: .bottom)
+                            .opacity(0.6 * v * level),
+                        lineWidth: 1.2)
+                }
+                .padding(-1)
+                .mask {
+                    if fadesDown {
+                        LinearGradient(stops: [.init(color: .white, location: 0),
+                                               .init(color: .white.opacity(0.5), location: 0.18),
+                                               .init(color: .clear, location: 0.5)],
+                                       startPoint: .top, endPoint: .bottom)
+                            .padding(-40)
+                    } else {
+                        Rectangle().padding(-40)
                     }
-                    .allowsHitTesting(false)
-                )
+                }
+                .allowsHitTesting(false)
+            )
         } keyframes: { _ in
-            CubicKeyframe(1, duration: 0.3)
-            CubicKeyframe(0, duration: 1.6)
+            CubicKeyframe(1, duration: 0.35)
+            CubicKeyframe(0.75, duration: 0.3)
+            CubicKeyframe(0, duration: 2.2)
         }
     }
 }

@@ -427,7 +427,7 @@ struct ContentView: View {
             .animation(.spring(duration: 0.3), value: browser.showFind)
             .animation(.spring(duration: 0.35), value: Assistant.shared.isOpen)
             .shadow(color: .black.opacity(pageBorder ? 0.14 : 0), radius: 10, y: 3)
-            .modifier(PageGlowPulse(trigger: browser.selected?.glowPulse ?? 0, hue: pageHue, radius: 12))
+            .modifier(PageGlowPulse(trigger: browser.selected?.glowPulse ?? 0, hue: pageHue, radius: 12, fadesDown: true))
     }
 
     @ViewBuilder
