@@ -4,7 +4,7 @@ import Foundation
 import os
 
 /// Listens to whatever the Mac is playing (Spotify, Music, a YouTube tab…) through a Core Audio
-/// system tap, and turns it into spectrum levels and beats for the Sonic wallpaper and glows.
+/// system tap, and turns it into spectrum levels and beats for the "glow to music" option.
 /// Audio never leaves the Mac and is never recorded — only loudness per frequency band is kept.
 final class MusicListener: @unchecked Sendable {
     static let shared = MusicListener()
@@ -44,8 +44,7 @@ final class MusicListener: @unchecked Sendable {
 
     /// Starts or stops listening to match the user's settings.
     func sync() {
-        let d = UserDefaults.standard
-        let wanted = d.string(forKey: Pref.wallpaper) == WallpaperStyle.sonic.rawValue || d.bool(forKey: Pref.musicGlow)
+        let wanted = UserDefaults.standard.bool(forKey: Pref.musicGlow)
         if wanted && !isRunning { start() } else if !wanted && isRunning { stop() }
     }
 
@@ -55,7 +54,7 @@ final class MusicListener: @unchecked Sendable {
         desc.uuid = UUID()
         desc.muteBehavior = .unmuted
         desc.isPrivate = true
-        desc.name = "Orbit Sonic"
+        desc.name = "Orbit Music Glow"
 
         guard AudioHardwareCreateProcessTap(desc, &tapID) == noErr else { return }
 
@@ -69,8 +68,8 @@ final class MusicListener: @unchecked Sendable {
         let outputUID = Self.uid(of: outputID) ?? ""
 
         let aggregate: [String: Any] = [
-            kAudioAggregateDeviceNameKey: "Orbit Sonic",
-            kAudioAggregateDeviceUIDKey: "orbit.sonic." + UUID().uuidString,
+            kAudioAggregateDeviceNameKey: "Orbit Music Glow",
+            kAudioAggregateDeviceUIDKey: "orbit.music." + UUID().uuidString,
             kAudioAggregateDeviceMainSubDeviceKey: outputUID,
             kAudioAggregateDeviceIsPrivateKey: true,
             kAudioAggregateDeviceIsStackedKey: false,

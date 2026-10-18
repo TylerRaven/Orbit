@@ -156,9 +156,14 @@ struct PageGlowPulse: ViewModifier {
             view
                 .shadow(color: color.opacity(0.8 * v * level), radius: 4 + 26 * v)
                 .overlay(
-                    RoundedRectangle(cornerRadius: radius, style: .continuous)
-                        .strokeBorder(color.opacity(0.85 * v * level), lineWidth: 1.5)
-                        .allowsHitTesting(false)
+                    ZStack {
+                        RoundedRectangle(cornerRadius: radius, style: .continuous)
+                            .strokeBorder(color.opacity(0.6 * v * level), lineWidth: 10)
+                            .blur(radius: 8)
+                        RoundedRectangle(cornerRadius: radius, style: .continuous)
+                            .strokeBorder(color.opacity(0.85 * v * level), lineWidth: 1.5)
+                    }
+                    .allowsHitTesting(false)
                 )
         } keyframes: { _ in
             CubicKeyframe(1, duration: 0.3)

@@ -8,6 +8,7 @@ struct ContentView: View {
     @AppStorage(Pref.tabLayout) private var tabLayout = TabLayout.top.rawValue
     @AppStorage(Pref.accent) private var accentRaw = Accent.blue.rawValue
     @AppStorage(Pref.showPinsBar) private var showPinsBar = true
+    @AppStorage(Pref.pageBorder) private var pageBorder = false
     @FocusState private var focus: Field?
     // Plain State storage: the @State macro plugin only ships with full Xcode.
     private let addressState = State(initialValue: "")
@@ -128,7 +129,7 @@ struct ContentView: View {
             }
 
             card
-                .padding([.horizontal, .bottom], 10)
+                .padding([.horizontal, .bottom], pageBorder ? 10 : 0)
         }
     }
 
@@ -186,7 +187,7 @@ struct ContentView: View {
             .frame(width: 232)
 
             card
-                .padding([.vertical, .trailing], 10)
+                .padding([.vertical, .trailing], pageBorder ? 10 : 0)
         }
     }
 
@@ -277,14 +278,21 @@ struct ContentView: View {
         .animation(.easeOut(duration: 0.15), value: focus)
     }
 
-    /// The rounded page card.
+    /// Which page corners are rounded. Edge to edge, only the corners that meet the browser chrome
+    /// are rounded; the window's own corners clip the rest.
+    private var pageCorners: RectangleCornerRadii {
+        let r: CGFloat = 12
+        if pageBorder { return .init(topLeading: r, bottomLeading: r, bottomTrailing: r, topTrailing: r) }
+        if tabLayout == TabLayout.side.rawValue { return .init(topLeading: r, bottomLeading: r) }
+        return .init(topLeading: r, topTrailing: r)
+    }
+
+    /// The page area: edge to edge by default, or an inset card with "Border around pages".
     private var card: some View {
-        webArea
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(Color.primary.opacity(0.08))
-            )
+        let shape = UnevenRoundedRectangle(cornerRadii: pageCorners, style: .continuous)
+        return webArea
+            .clipShape(shape)
+            .overlay(shape.strokeBorder(Color.primary.opacity(pageBorder ? 0.08 : 0)))
             .overlay(alignment: .top) {
                 if let offer = browser.passwordOffer {
                     PasswordBanner(offer: offer, accent: accent)
@@ -309,7 +317,7 @@ struct ContentView: View {
             .animation(.spring(duration: 0.3), value: browser.passwordOffer)
             .animation(.spring(duration: 0.3), value: browser.showFind)
             .animation(.spring(duration: 0.35), value: Assistant.shared.isOpen)
-            .shadow(color: .black.opacity(0.14), radius: 10, y: 3)
+            .shadow(color: .black.opacity(pageBorder ? 0.14 : 0), radius: 10, y: 3)
             .modifier(PageGlowPulse(trigger: browser.selected?.glowPulse ?? 0, hue: pageHue, radius: 12))
     }
 
@@ -317,7 +325,7 @@ struct ContentView: View {
     private var webArea: some View {
         if let tab = browser.selected {
             ZStack {
-                WebViewHost(webView: tab.webView)
+                WebViewHost(webView: tab.webView, corners: pageCorners)
                 if tab.isBlank {
                     StartPage(focus: $focus, accent: tab.isPrivate ? .purple : accent,
                               isPrivate: tab.isPrivate, onSubmit: submit)
@@ -578,9 +586,13 @@ struct ProgressLine: View {
 /// (SwiftUI clip shapes don't reach AppKit views, so the rounding happens here.)
 struct WebViewHost: NSViewRepresentable {
     let webView: WKWebView
+    var corners = RectangleCornerRadii(topLeading: 12, bottomLeading: 12, bottomTrailing: 12, topTrailing: 12)
 
     func makeNSView(context: Context) -> WebContainer { WebContainer() }
-    func updateNSView(_ container: WebContainer, context: Context) { container.show(webView) }
+    func updateNSView(_ container: WebContainer, context: Context) {
+        container.show(webView)
+        container.round(corners)
+    }
 }
 
 final class WebContainer: NSView {
@@ -593,6 +605,17 @@ final class WebContainer: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    /// Rounds only the corners that have a radius (the layer isn't flipped, so "min Y" is the bottom).
+    func round(_ c: RectangleCornerRadii) {
+        var mask: CACornerMask = []
+        if c.topLeading > 0 { mask.insert(.layerMinXMaxYCorner) }
+        if c.topTrailing > 0 { mask.insert(.layerMaxXMaxYCorner) }
+        if c.bottomLeading > 0 { mask.insert(.layerMinXMinYCorner) }
+        if c.bottomTrailing > 0 { mask.insert(.layerMaxXMinYCorner) }
+        layer?.cornerRadius = max(c.topLeading, c.topTrailing, c.bottomLeading, c.bottomTrailing)
+        layer?.maskedCorners = mask
+    }
 
     func show(_ webView: WKWebView) {
         guard webView.superview !== self else { return }

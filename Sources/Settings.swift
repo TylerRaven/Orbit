@@ -13,6 +13,7 @@ enum Pref {
     static let pins = "pins"
     static let showPinsBar = "showPinsBar"
     static let musicGlow = "musicGlow"
+    static let pageBorder = "pageBorder"
 
     // Start page
     static let wallpaper = "wallpaper"
@@ -165,6 +166,7 @@ struct LookSettings: View {
     @AppStorage(Pref.accent) private var accent = Accent.blue.rawValue
     @AppStorage(Pref.ambient) private var ambient = AmbientLevel.vivid.rawValue
     @AppStorage(Pref.showPinsBar) private var showPinsBar = true
+    @AppStorage(Pref.pageBorder) private var pageBorder = false
 
     var body: some View {
         Form {
@@ -174,6 +176,7 @@ struct LookSettings: View {
             .pickerStyle(.segmented)
 
             Toggle("Show pins bar", isOn: $showPinsBar)
+            Toggle("Border around pages", isOn: $pageBorder)
 
             Picker("Glow effects", selection: $ambient) {
                 ForEach(AmbientLevel.allCases) { Text($0.label).tag($0.rawValue) }

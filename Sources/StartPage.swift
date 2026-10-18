@@ -504,8 +504,8 @@ struct StartPageSettings: View {
                 }
             }
             Toggle("Glows with the link you point at", isOn: $reactive)
-            Toggle("Glow to music on every wallpaper", isOn: $musicGlow)
-            if wallpaper == WallpaperStyle.sonic.rawValue || musicGlow {
+            Toggle("Glow to music", isOn: $musicGlow)
+            if musicGlow {
                 Text("Reacts to anything your Mac plays. macOS will ask once to allow system audio; you can change it in System Settings › Privacy & Security › Screen & System Audio Recording.")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
