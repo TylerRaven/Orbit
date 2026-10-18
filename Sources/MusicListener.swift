@@ -165,7 +165,8 @@ final class MusicListener: @unchecked Sendable {
             let db = 20 * log10(amp + 1e-7)
             // Lift the highs a little so the ring isn't all bass.
             let level = min(1, max(0, (db + 72 + Float(b) * 0.35) / 58))
-            smoothed[b] = level > smoothed[b] ? level : smoothed[b] * 0.86 + level * 0.14
+            // Rise fairly quickly, fall slowly, so it flows instead of flickering.
+            smoothed[b] += (level - smoothed[b]) * (level > smoothed[b] ? 0.35 : 0.06)
             loudness += smoothed[b]
         }
         loudness /= Float(Self.bandCount)

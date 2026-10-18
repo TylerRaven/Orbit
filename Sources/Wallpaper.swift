@@ -249,7 +249,7 @@ private struct Sonic: View {
             ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(look.color(0, 0.7, 0.05)))
             let c = CGPoint(x: size.width / 2, y: size.height / 2)
             let bass = Double(music.bass)
-            let base = min(size.width, size.height) * 0.27 * look.scale * (1 + bass * 0.16)
+            let base = min(size.width, size.height) * 0.235 * look.scale * (1 + bass * 0.08)
 
             // Soft light filling the middle of the ring.
             ctx.blendMode = .plusLighter
@@ -258,9 +258,16 @@ private struct Sonic: View {
                      with: .radialGradient(Gradient(colors: [look.color(0, 0.8, 0.22 * strength * (0.6 + bass)), .clear]),
                                            center: c, startRadius: base * 0.2, endRadius: glowR))
 
-            let levels = music.levels
+            // Blur neighbouring bands together so the ring curves instead of spiking.
+            let raw = music.levels.map(Double.init)
+            var levels = raw
+            for _ in 0..<3 {
+                levels = levels.indices.map { i in
+                    (levels[max(0, i - 1)] + levels[i] * 2 + levels[min(levels.count - 1, i + 1)]) / 4
+                }
+            }
             let bands = levels.count
-            let points = 220
+            let points = 240
             for strand in 0..<6 {
                 let s = Double(strand)
                 var prev: CGPoint?
@@ -268,25 +275,27 @@ private struct Sonic: View {
                     let theta = Double(i) / Double(points) * 2 * .pi
                     // Mirror the spectrum so the ring is symmetric: bass at the top and bottom.
                     let u = theta < .pi ? theta / .pi : (2 * .pi - theta) / .pi
-                    let level = Double(levels[min(bands - 1, Int(u * Double(bands - 1)))])
-                    let wobble = 0.045 * sin(theta * 3 + phase * 0.7 + s * 1.1)
-                        + 0.03 * sin(theta * 5 - phase * 1.1 + s * 2.3)
-                        + 0.015 * sin(theta * 11 + phase * 1.7 + s)
-                    let r = base * (1 + wobble + level * (0.22 + 0.05 * s) + s * 0.012)
+                    let pos = u * Double(bands - 1)
+                    let k = min(bands - 2, Int(pos))
+                    let level = levels[k] + (levels[k + 1] - levels[k]) * (pos - Double(k))
+                    let wobble = 0.035 * sin(theta * 3 + phase * 0.55 + s * 1.1)
+                        + 0.02 * sin(theta * 5 - phase * 0.8 + s * 2.3)
+                    let r = base * (1 + wobble + level * (0.11 + 0.025 * s) + s * 0.01)
                     let p = CGPoint(x: c.x + cos(theta - .pi / 2) * r, y: c.y + sin(theta - .pi / 2) * r)
                     defer { prev = p }
                     guard let prev else { continue }
 
                     // Break each strand into drifting fragments of light.
-                    let gate = sin(theta * 2 + phase * 0.45 + s * 1.7) * 0.6 + sin(theta * 7 - phase * 0.8 + s) * 0.4
-                    let alpha = max(0, gate) * (0.35 + level * 0.9) * strength
+                    let gate = sin(theta * 2 + phase * 0.35 + s * 1.7) * 0.75 + sin(theta * 3 - phase * 0.5 + s) * 0.25
+                    let alpha = pow(max(0, gate), 1.6) * (0.4 + level * 0.8) * strength
                     guard alpha > 0.02 else { continue }
                     var seg = Path()
                     seg.move(to: prev)
                     seg.addLine(to: p)
                     let tint = look.color(0.02 * s - 0.04, 0.55 + level * 0.3, 1)
-                    ctx.stroke(seg, with: .color(tint.opacity(alpha * 0.14)), lineWidth: 9 + level * 10)
-                    ctx.stroke(seg, with: .color(tint.opacity(min(1, alpha))), lineWidth: 1.1 + level * 1.6)
+                    ctx.stroke(seg, with: .color(tint.opacity(alpha * 0.06)), lineWidth: 22 + level * 16)
+                    ctx.stroke(seg, with: .color(tint.opacity(alpha * 0.16)), lineWidth: 7 + level * 6)
+                    ctx.stroke(seg, with: .color(tint.opacity(min(1, alpha * 0.9))), lineWidth: 1.2 + level * 1.2)
                 }
             }
         }
