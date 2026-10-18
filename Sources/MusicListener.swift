@@ -19,6 +19,9 @@ final class MusicListener: @unchecked Sendable {
 
     private let state = OSAllocatedUnfairLock(initialState: Snapshot())
     private let queue = DispatchQueue(label: "orbit.music", qos: .userInteractive)
+    /// Starting a system tap can block for a long time (e.g. while macOS asks for permission),
+    /// so it never runs on the main thread.
+    private let control = DispatchQueue(label: "orbit.music.control", qos: .utility)
 
     private var tapID = AudioObjectID(kAudioObjectUnknown)
     private var deviceID = AudioObjectID(kAudioObjectUnknown)
@@ -42,13 +45,20 @@ final class MusicListener: @unchecked Sendable {
 
     // MARK: Start / stop
 
-    /// Starts or stops listening to match the user's settings.
+    /// Starts or stops listening to match the user's settings (in the background).
     func sync() {
         let wanted = UserDefaults.standard.bool(forKey: Pref.musicGlow)
-        if wanted && !isRunning { start() } else if !wanted && isRunning { stop() }
+        control.async {
+            if wanted && !self.isRunning { self.start() } else if !wanted && self.isRunning { self.stop() }
+        }
     }
 
-    func start() {
+    /// Stops listening without waiting (used on quit).
+    func stopSoon() {
+        control.async { if self.isRunning { self.stop() } }
+    }
+
+    private func start() {
         guard !isRunning else { return }
         let desc = CATapDescription(stereoGlobalTapButExcludeProcesses: [])
         desc.uuid = UUID()
@@ -93,7 +103,7 @@ final class MusicListener: @unchecked Sendable {
         isRunning = true
     }
 
-    func stop() {
+    private func stop() {
         if let procID {
             AudioDeviceStop(deviceID, procID)
             AudioDeviceDestroyIOProcID(deviceID, procID)

@@ -24,6 +24,12 @@ final class Tab: NSObject, Identifiable {
     var hoveredLink: URL?
     /// A real (unmuted, visible) video is playing, so picture-in-picture is offered.
     var isPlayingVideo = false
+    /// The page has a real article, so reading mode is offered.
+    var readerAvailable = false
+    /// Detected page language when it differs from yours, so translation is offered.
+    var pageLanguage: Locale.Language?
+    var isTranslated = false
+    var isTranslating = false
     /// From the page's <meta name="theme-color">, when it has a real color.
     var themeHue: Double?
     /// Bumped whenever a page finishes opening, to fire the tab glow.
@@ -34,13 +40,23 @@ final class Tab: NSObject, Identifiable {
     @ObservationIgnored weak var browser: Browser?
     @ObservationIgnored private var observers: [NSKeyValueObservation] = []
 
+    /// The last address this tab was asked to open. Kept even if loading fails,
+    /// so the tab, the address bar and the saved session never lose it.
+    var requestedURL: URL?
+    /// Why the last page couldn't open, for the error card.
+    var loadError: String?
+    @ObservationIgnored private var retriedAfterFailure = false
+
     var displayTitle: String {
         if !title.isEmpty { return title }
-        if let host = url?.host() { return host }
+        if let host = (url ?? requestedURL)?.host() { return host }
         return "New Tab"
     }
 
-    var isBlank: Bool { url == nil && !isLoading }
+    /// The address to show and save: where the tab is, or where it was trying to go.
+    var currentURL: URL? { url ?? requestedURL }
+
+    var isBlank: Bool { url == nil && requestedURL == nil && !isLoading }
 
     init(browser: Browser, configuration: WKWebViewConfiguration? = nil, isPrivate: Bool = false) {
         self.browser = browser
@@ -81,7 +97,14 @@ final class Tab: NSObject, Identifiable {
     }
 
     func load(_ url: URL) {
+        requestedURL = url
+        loadError = nil
         webView.load(URLRequest(url: url))
+    }
+
+    func retry() {
+        retriedAfterFailure = false
+        if let target = requestedURL { load(target) }
     }
 
     func teardown() {
@@ -173,6 +196,26 @@ extension Tab: WKNavigationDelegate {
 
     func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
         download.delegate = Downloads.shared
+    }
+
+    func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        loadError = nil
+        if let url = webView.url { requestedURL = url }
+    }
+
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        let ns = error as NSError
+        // Cancelled loads (a newer navigation, a download) aren't failures.
+        if ns.code == NSURLErrorCancelled || (ns.domain == "WebKitErrorDomain" && ns.code == 102) { return }
+        if !retriedAfterFailure, requestedURL != nil {
+            retriedAfterFailure = true // one quiet retry, e.g. the network waking up after launch
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { [weak self] in
+                guard let self, self.loadError == nil, let target = self.requestedURL else { return }
+                self.webView.load(URLRequest(url: target))
+            }
+            return
+        }
+        loadError = ns.localizedDescription
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

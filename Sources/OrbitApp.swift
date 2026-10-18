@@ -43,7 +43,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated { Browser.shared.saveSession() }
-        MusicListener.shared.stop()
+        MusicListener.shared.stopSoon()
     }
 }
 
@@ -68,7 +68,10 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("w")
         }
         CommandGroup(after: .toolbar) {
-            Button("Reload Page") { browser.selected?.webView.reload() }
+            Button("Reload Page") {
+                guard let tab = browser.selected else { return }
+                if tab.loadError != nil || tab.url == nil { tab.retry() } else { tab.webView.reload() }
+            }
                 .keyboardShortcut("r")
             Button("Back") { browser.selected?.webView.goBack() }
                 .keyboardShortcut("[")
@@ -98,6 +101,21 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("l", modifiers: [.command, .option])
             Button("Split View") { browser.toggleSplitView() }
                 .keyboardShortcut("s", modifiers: [.command, .control])
+            Divider()
+            Button("Reading Mode") {
+                if Reader.shared.article != nil { Reader.shared.close() }
+                else if let tab = browser.selected, tab.readerAvailable { Reader.shared.open(tab) }
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            Button("Translate Page") {
+                guard let tab = browser.selected, tab.pageLanguage != nil else { return }
+                if tab.isTranslated { Translator.showOriginal(tab) } else { browser.translating = tab }
+            }
+            .keyboardShortcut("t", modifiers: [.command, .control])
+            Button("Ask AI About All Tabs") {
+                Assistant.shared.isOpen = true
+                Assistant.shared.askAboutTabs("Compare the pages I have open: what each is, how they differ, and which one is best for what.")
+            }
             Button("Orbit AI") { Assistant.shared.toggle() }
                 .keyboardShortcut("j")
             Button("Summarize Page") { Assistant.shared.summarize(browser.selected) }

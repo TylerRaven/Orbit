@@ -87,6 +87,54 @@ final class Assistant {
         start("Summarize this page") { await self.summary(tab) }
     }
 
+    /// Ask one question about every page open in this Space ("compare these", "which is cheapest").
+    func askAboutTabs(_ question: String) {
+        let q = question.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !q.isEmpty, !isBusy else { return }
+        let tabs = Browser.shared.spaceTabs.filter { !$0.isBlank }
+        start(q) { await self.answerAcrossTabs(q, tabs: tabs) }
+    }
+
+    private func answerAcrossTabs(_ question: String, tabs: [Tab]) async {
+        if unavailableReason != nil && !cloudAvailable { return fail(unavailableReason!) }
+        let picked = Array(tabs.prefix(8))
+        guard picked.count > 1 else { return fail("Open a couple of pages in this Space first, then I can compare them.") }
+        status = "Reading \(picked.count) tabs…"
+        var pages: [PageText] = []
+        for tab in picked {
+            if let page = await PageText.read(tab), !page.text.isEmpty { pages.append(page) }
+        }
+        status = nil
+        var budget = (cloudAvailable ? Self.cloudChars : Self.onDeviceChars) / max(1, pages.count)
+        for attempt in 0..<3 {
+            var text = Self.instructions + "\n\nThe user has these pages open. Refer to them by their titles.\n"
+            for (i, page) in pages.enumerated() {
+                text += "\n<page number=\"\(i + 1)\" title=\"\(page.title)\" url=\"\(page.url)\">\n\(page.text.prefix(budget))\n</page>\n"
+            }
+            if cloudAvailable, #available(macOS 27, *) {
+                usingCloud = true
+                session = LanguageModelSession(model: PrivateCloudComputeLanguageModel(), instructions: text)
+            } else {
+                usingCloud = false
+                session = LanguageModelSession(instructions: text)
+            }
+            sessionKey = "tabs:" + pages.map(\.url).joined(separator: "|")
+            do {
+                try await stream(question)
+                return
+            } catch where usingCloud && attempt < 2 {
+                cloudBroken = true // Private Cloud refused: fall back to the on-device model
+                budget = Self.onDeviceChars / max(1, pages.count)
+                setLast("")
+            } catch where Self.isContextOverflow(error) && attempt < 2 {
+                budget /= 2 // too much to read at once: take less of each page and try again
+                setLast("")
+            } catch {
+                return fail(Self.describe(error))
+            }
+        }
+    }
+
     func explain(_ selection: String, in tab: Tab?) {
         let s = selection.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !s.isEmpty else { return summarize(tab) }

@@ -71,6 +71,11 @@ struct AIPanel: View {
                 chip("Summarize this page", "text.badge.star") { ai.summarize(tab) }
                 chip("Key takeaways", "list.bullet") { ai.ask("What are the most important takeaways from this page?", about: tab) }
                 chip("Explain it simply", "lightbulb") { ai.ask("Explain this page like I'm 12.", about: tab) }
+                if Browser.shared.spaceTabs.filter({ !$0.isBlank }).count > 1 {
+                    chip("Compare my open tabs", "square.on.square") {
+                        ai.askAboutTabs("Compare the pages I have open: what each is, how they differ, and which one is best for what.")
+                    }
+                }
             } else {
                 chip("Give me a fun fact", "dice") { ai.ask("Tell me a surprising fun fact.", about: nil) }
                 chip("Plan my day", "calendar") { ai.ask("Help me plan a productive day in 5 bullet points.", about: nil) }

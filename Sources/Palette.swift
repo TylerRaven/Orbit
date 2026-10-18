@@ -149,6 +149,22 @@ struct CommandPalette: View {
                 })
             }
         }
+        if let tab = browser.selected, tab.readerAvailable {
+            items.append(PaletteItem(icon: "text.page", title: "Reading Mode", subtitle: "⇧⌘R") { Reader.shared.open(tab) })
+        }
+        if let tab = browser.selected, let language = tab.pageLanguage {
+            items.append(PaletteItem(icon: "translate", title: tab.isTranslated ? "Show Original" : "Translate from \(Translator.name(of: language))",
+                                     subtitle: "⌃⌘T") {
+                if tab.isTranslated { Translator.showOriginal(tab) } else { Browser.shared.translating = tab }
+            })
+        }
+        if !q.isEmpty, browser.spaceTabs.filter({ !$0.isBlank }).count > 1 {
+            let question = q.hasPrefix("??") ? String(q.dropFirst(2)) : q
+            items.insert(PaletteItem(icon: "square.on.square", title: "Ask AI about all tabs: “\(question)”",
+                                     subtitle: "\(browser.spaceTabs.filter { !$0.isBlank }.count) tabs") {
+                Assistant.shared.askAboutTabs(question)
+            }, at: min(q.hasPrefix("??") ? 0 : 2, items.count))
+        }
         if let tab = browser.selected, tab.isPlayingVideo {
             items.insert(PaletteItem(icon: "pip.enter", title: "Picture in Picture") {
                 PageAgent.shared.pictureInPicture(tab)

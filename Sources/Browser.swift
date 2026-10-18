@@ -18,6 +18,8 @@ final class Browser {
     /// Link being previewed with ⌥-hover, in its own temporary web view.
     var peek: Tab?
     var showDefaultPrompt = false
+    /// Tab waiting for a translation session.
+    var translating: Tab?
     var editingSpace: Space?
 
     /// The Space whose tabs are showing.
@@ -357,7 +359,7 @@ final class Browser {
     func saveSession() {
         guard !restoring else { return }
         let entries: [[String: String]] = tabs.filter { !$0.isPrivate }.compactMap { tab in
-            guard let url = tab.url else { return nil }
+            guard let url = tab.currentURL else { return nil }
             return ["url": url.absoluteString, "space": tab.spaceID?.uuidString ?? "", "pinned": tab.isPinned ? "1" : "0"]
         }
         UserDefaults.standard.set(entries, forKey: "session.v2")

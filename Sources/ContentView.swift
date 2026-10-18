@@ -37,6 +37,7 @@ struct ContentView: View {
             ZStack {
                 VisualEffect()
                 AmbientBackdrop(hue: pageHue)
+                TranslationHost()
             }
             .ignoresSafeArea()
         }
@@ -72,8 +73,10 @@ struct ContentView: View {
         .onChange(of: browser.focusAddressRequest) {
             focus = browser.selected?.isBlank == true ? .start : .address
         }
+        .onChange(of: browser.selected?.url) { Reader.shared.close() }
         .onChange(of: browser.selectedID) { old, _ in
             syncAddress(force: true)
+            Reader.shared.close()
             // Leaving a tab mid-video pops the video out so it keeps playing on top.
             if UserDefaults.standard.bool(forKey: Pref.autoPiP),
                let previous = browser.tabs.first(where: { $0.id == old }), previous.isPlayingVideo,
@@ -88,12 +91,19 @@ struct ContentView: View {
     /// Mirrors the tab's URL into the address bar, unless the user is mid-edit on the same tab.
     private func syncAddress(force: Bool = false) {
         if force || focus != .address {
-            address = browser.selected?.url?.absoluteString ?? ""
+            address = browser.selected?.currentURL?.absoluteString ?? ""
         }
     }
 
     private func submit(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("??") {
+            // "??question" asks about every tab in this Space.
+            Assistant.shared.askAboutTabs(String(trimmed.dropFirst(2)))
+            address = browser.selected?.url?.absoluteString ?? ""
+            focus = nil
+            return
+        }
         if trimmed.hasPrefix("?") {
             // "?question" asks Orbit AI instead of searching.
             let tab = browser.selected
@@ -277,6 +287,30 @@ struct ContentView: View {
                     address = browser.selected?.url?.absoluteString ?? ""
                     focus = nil
                 }
+            if let tab = browser.selected, let language = tab.pageLanguage {
+                Button {
+                    if tab.isTranslated { Translator.showOriginal(tab) } else { browser.translating = tab }
+                } label: {
+                    if tab.isTranslating {
+                        ProgressView().controlSize(.mini)
+                    } else {
+                        Image(systemName: "translate").font(.system(size: 12, weight: .semibold))
+                    }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(tab.isTranslated ? AnyShapeStyle(accent.color) : AnyShapeStyle(.secondary))
+                .help(tab.isTranslated ? "Show original" : "Translate from \(Translator.name(of: language))")
+            }
+            if let tab = browser.selected, tab.readerAvailable {
+                Button {
+                    if Reader.shared.article != nil { Reader.shared.close() } else { Reader.shared.open(tab) }
+                } label: {
+                    Image(systemName: "text.page").font(.system(size: 12, weight: .semibold))
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(Reader.shared.article != nil ? AnyShapeStyle(accent.color) : AnyShapeStyle(.secondary))
+                .help("Reading mode (⇧⌘R)")
+            }
             if let tab = browser.selected, tab.isPlayingVideo {
                 Button { PageAgent.shared.pictureInPicture(tab) } label: {
                     Image(systemName: "pip.enter").font(.system(size: 12, weight: .semibold))
@@ -366,6 +400,14 @@ struct ContentView: View {
                 }
             }
             .overlay {
+                if Reader.shared.article != nil {
+                    ReaderPanel(accent: accent)
+                        .clipShape(UnevenRoundedRectangle(cornerRadii: pageCorners, style: .continuous))
+                        .transition(.opacity)
+                }
+            }
+            .animation(.easeOut(duration: 0.2), value: Reader.shared.article != nil)
+            .overlay {
                 if let peek = browser.peek {
                     PeekPanel(tab: peek, accent: accent)
                         .transition(.scale(scale: 0.92).combined(with: .opacity))
@@ -403,6 +445,9 @@ struct ContentView: View {
         ZStack {
             WebViewHost(webView: tab.webView, corners: corners) {
                 if browser.selectedID != tab.id { browser.select(tab) }
+            }
+            if let error = tab.loadError {
+                LoadErrorCard(tab: tab, message: error, accent: accent)
             }
             if tab.isBlank {
                 StartPage(focus: $focus, accent: tab.isPrivate ? .purple : accent,
@@ -864,5 +909,35 @@ struct PeekPanel: View {
             }
         }
         .onExitCommand { Browser.shared.closePeek() }
+    }
+}
+
+/// Shown instead of a blank page when a site can't be reached.
+struct LoadErrorCard: View {
+    let tab: Tab
+    let message: String
+    let accent: Accent
+
+    var body: some View {
+        ZStack {
+            Color(nsColor: .windowBackgroundColor)
+            VStack(spacing: 14) {
+                Image(systemName: "wifi.exclamationmark")
+                    .font(.system(size: 34, weight: .semibold))
+                    .foregroundStyle(accent.gradient)
+                Text("Couldn't open \(tab.requestedURL?.host() ?? "this page")")
+                    .font(.system(size: 20, weight: .semibold, design: .rounded))
+                Text(message)
+                    .font(.system(size: 13))
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 420)
+                Button("Try Again") { tab.retry() }
+                    .buttonStyle(.borderedProminent)
+                    .tint(accent.color)
+            }
+            .padding(30)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+        }
     }
 }
