@@ -57,6 +57,11 @@ final class History {
             .map { $0 }
     }
 
+    func remove(_ entry: HistoryEntry) {
+        entries.removeAll { $0.url == entry.url }
+        scheduleSave()
+    }
+
     func clear() {
         entries = []
         scheduleSave()

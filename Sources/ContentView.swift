@@ -48,9 +48,18 @@ struct ContentView: View {
                         .padding(.top, 110)
                 }
                 .transition(.opacity)
+            } else if browser.showHistory {
+                ZStack(alignment: .top) {
+                    Color.black.opacity(0.18)
+                        .onTapGesture { browser.showHistory = false }
+                    HistoryPanel(accent: accent)
+                        .padding(.top, 90)
+                }
+                .transition(.opacity)
             }
         }
         .animation(.easeOut(duration: 0.15), value: browser.showPalette)
+        .animation(.easeOut(duration: 0.15), value: browser.showHistory)
         .ignoresSafeArea()
         .onChange(of: browser.focusAddressRequest) {
             focus = browser.selected?.isBlank == true ? .start : .address
@@ -116,6 +125,7 @@ struct ContentView: View {
             HStack(spacing: 6) {
                 navButtons
                 addressBar
+                if !Downloads.shared.items.isEmpty { DownloadsButton(accent: accent) }
                 aiButton
             }
             .padding(.horizontal, 10)
@@ -139,6 +149,7 @@ struct ContentView: View {
                 HStack(spacing: 6) {
                     Spacer()
                     navButtons
+                    if !Downloads.shared.items.isEmpty { DownloadsButton(accent: accent) }
                     aiButton
                 }
                 .frame(height: 30)
@@ -323,18 +334,77 @@ struct ContentView: View {
 
     @ViewBuilder
     private var webArea: some View {
-        if let tab = browser.selected {
-            ZStack {
-                WebViewHost(webView: tab.webView, corners: pageCorners)
-                if tab.isBlank {
-                    StartPage(focus: $focus, accent: tab.isPrivate ? .purple : accent,
-                              isPrivate: tab.isPrivate, onSubmit: submit)
-                        .id(tab.id) // fresh search box per tab
-                }
-            }
+        if let pair = browser.visibleSplit {
+            splitPages(pair.left, pair.right)
+        } else if let tab = browser.selected {
+            page(tab, corners: pageCorners)
         } else {
             Color(nsColor: .windowBackgroundColor)
         }
+    }
+
+    private func page(_ tab: Tab, corners: RectangleCornerRadii) -> some View {
+        ZStack {
+            WebViewHost(webView: tab.webView, corners: corners) {
+                if browser.selectedID != tab.id { browser.select(tab) }
+            }
+            if tab.isBlank {
+                StartPage(focus: $focus, accent: tab.isPrivate ? .purple : accent,
+                          isPrivate: tab.isPrivate, onSubmit: submit)
+                    .id(tab.id) // fresh search box per tab
+                    .clipShape(UnevenRoundedRectangle(cornerRadii: corners, style: .continuous))
+                    .simultaneousGesture(TapGesture().onEnded {
+                        if browser.selectedID != tab.id { browser.select(tab) }
+                    })
+            }
+        }
+    }
+
+    /// Two pages side by side with a glass divider you can drag. Clicking a side makes it the active tab.
+    private func splitPages(_ left: Tab, _ right: Tab) -> some View {
+        GeometryReader { geo in
+            let gap: CGFloat = 8
+            let leftWidth = max(200, min(geo.size.width - 200, geo.size.width * browser.splitRatio - gap / 2))
+            let r: CGFloat = 12
+            let outer = pageCorners
+            HStack(spacing: 0) {
+                page(left, corners: .init(topLeading: outer.topLeading, bottomLeading: outer.bottomLeading,
+                                          bottomTrailing: r, topTrailing: r))
+                    .frame(width: leftWidth)
+                    .overlay(alignment: .top) { activeLine(left) }
+
+                Capsule()
+                    .fill(Color.primary.opacity(0.25))
+                    .frame(width: 4, height: 44)
+                    .frame(width: gap)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .onHover { inside in
+                        if inside { NSCursor.resizeLeftRight.push() } else { NSCursor.pop() }
+                    }
+                    .gesture(DragGesture(minimumDistance: 1).onChanged { value in
+                        let x = value.location.x + leftWidth
+                        browser.splitRatio = min(0.8, max(0.2, x / geo.size.width))
+                    })
+                    .onTapGesture(count: 2) { browser.splitRatio = 0.5 }
+                    .help("Drag to resize, double-click to even out")
+
+                page(right, corners: .init(topLeading: r, bottomLeading: r,
+                                           bottomTrailing: outer.bottomTrailing, topTrailing: outer.topTrailing))
+                    .overlay(alignment: .top) { activeLine(right) }
+            }
+        }
+    }
+
+    /// Thin accent line on top of the active half of a split.
+    private func activeLine(_ tab: Tab) -> some View {
+        Capsule()
+            .fill(accent.color)
+            .frame(width: 60, height: 3)
+            .padding(.top, 4)
+            .opacity(browser.selectedID == tab.id ? 1 : 0)
+            .animation(.easeOut(duration: 0.2), value: browser.selectedID)
+            .allowsHitTesting(false)
     }
 }
 
@@ -350,6 +420,12 @@ struct TopTab: View {
         HStack(spacing: 7) {
             Favicon(tab: tab)
             if tab.isPrivate { PrivateBadge() }
+            if let split = Browser.shared.split, split.left == tab.id || split.right == tab.id {
+                Image(systemName: "rectangle.split.2x1.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.secondary)
+                    .help("In split view")
+            }
             Text(tab.displayTitle)
                 .font(.system(size: 12))
                 .lineLimit(1)
@@ -429,6 +505,11 @@ struct TabMenu: View {
             .disabled(tab.isPrivate)
         if let url = tab.url, !tab.isPrivate {
             Button("Open in Private Tab") { Browser.shared.newTab(url: url, isPrivate: true) }
+        }
+        if let split = Browser.shared.split, split.left == tab.id || split.right == tab.id {
+            Button("Close Split View") { Browser.shared.split = nil }
+        } else if Browser.shared.selectedID != tab.id {
+            Button("Open in Split View") { Browser.shared.splitView(with: tab) }
         }
         Button("Reload") { tab.webView.reload() }
         Button("Duplicate") { Browser.shared.newTab(url: tab.url) }
@@ -587,15 +668,36 @@ struct ProgressLine: View {
 struct WebViewHost: NSViewRepresentable {
     let webView: WKWebView
     var corners = RectangleCornerRadii(topLeading: 12, bottomLeading: 12, bottomTrailing: 12, topTrailing: 12)
+    /// Called when the user clicks into this page (used by split view to switch the active side).
+    var onActivate: (() -> Void)? = nil
 
     func makeNSView(context: Context) -> WebContainer { WebContainer() }
     func updateNSView(_ container: WebContainer, context: Context) {
         container.show(webView)
         container.round(corners)
+        container.onActivate = onActivate
     }
 }
 
 final class WebContainer: NSView {
+    var onActivate: (() -> Void)?
+    private var clickMonitor: Any?
+
+    // WKWebView swallows clicks, so watch for them at the app level instead.
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+        clickMonitor = nil
+        guard window != nil else { return }
+        clickMonitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+            if let self, event.window === self.window,
+               self.bounds.contains(self.convert(event.locationInWindow, from: nil)) {
+                self.onActivate?()
+            }
+            return event
+        }
+    }
+
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
@@ -605,6 +707,10 @@ final class WebContainer: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError() }
+
+    deinit {
+        if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
+    }
 
     /// Rounds only the corners that have a radius (the layer isn't flipped, so "min Y" is the bottom).
     func round(_ c: RectangleCornerRadii) {

@@ -55,6 +55,8 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("t")
             Button("New Private Tab") { browser.newTab(isPrivate: true) }
                 .keyboardShortcut("n", modifiers: [.command, .shift])
+            Button("Reopen Closed Tab") { browser.reopenClosedTab() }
+                .keyboardShortcut("t", modifiers: [.command, .shift])
             Button("Open Location…") { browser.focusAddressRequest += 1 }
                 .keyboardShortcut("l")
             Button("Pin / Unpin This Page") { Pins.toggleCurrentPage() }
@@ -89,6 +91,12 @@ struct BrowserCommands: Commands {
         CommandMenu("Go") {
             Button("Command Palette…") { browser.showPalette.toggle() }
                 .keyboardShortcut("k")
+            Button("Show History") { browser.showPalette = false; browser.showHistory.toggle() }
+                .keyboardShortcut("y")
+            Button("Downloads") { Downloads.shared.showPanel.toggle() }
+                .keyboardShortcut("l", modifiers: [.command, .option])
+            Button("Split View") { browser.toggleSplitView() }
+                .keyboardShortcut("s", modifiers: [.command, .control])
             Button("Orbit AI") { Assistant.shared.toggle() }
                 .keyboardShortcut("j")
             Button("Summarize Page") { Assistant.shared.summarize(browser.selected) }

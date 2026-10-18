@@ -157,6 +157,11 @@ struct CommandPalette: View {
         var list: [PaletteItem] = [
             PaletteItem(icon: "plus.square", title: "New Tab", subtitle: "⌘T") { b.newTab() },
             PaletteItem(icon: "eye.slash", title: "New Private Tab", subtitle: "⌘⇧N") { b.newTab(isPrivate: true) },
+            PaletteItem(icon: "arrow.uturn.backward.square", title: "Reopen Closed Tab", subtitle: "⌘⇧T") { b.reopenClosedTab() },
+            PaletteItem(icon: "rectangle.split.2x1", title: b.visibleSplit == nil ? "Split View" : "Close Split View",
+                        subtitle: "⌃⌘S") { b.toggleSplitView() },
+            PaletteItem(icon: "clock.arrow.circlepath", title: "Show History", subtitle: "⌘Y") { b.showHistory = true },
+            PaletteItem(icon: "arrow.down.circle", title: "Downloads", subtitle: "⌥⌘L") { Downloads.shared.showPanel = true },
             PaletteItem(icon: "magnifyingglass", title: "Find in Page", subtitle: "⌘F") { b.showFind = true },
             PaletteItem(icon: "pin.circle", title: Pins.isPinned(tab?.url) ? "Unpin This Page" : "Pin This Page",
                         subtitle: "⌘D") { Pins.toggleCurrentPage() },

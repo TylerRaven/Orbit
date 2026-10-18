@@ -14,8 +14,25 @@ final class Browser {
     var passwordOffer: PasswordOffer?
     var showPalette = false
     var showFind = false
+    var showHistory = false
+
+    /// Two tabs shown side by side. Visible whenever one of them is the selected tab.
+    var split: (left: UUID, right: UUID)?
+    /// Share of the width the left page gets in split view.
+    var splitRatio = 0.5
 
     var selected: Tab? { tabs.first { $0.id == selectedID } }
+
+    /// The pair to show side by side right now, if the selected tab is part of a split.
+    var visibleSplit: (left: Tab, right: Tab)? {
+        guard let split, selectedID == split.left || selectedID == split.right,
+              let l = tabs.first(where: { $0.id == split.left }),
+              let r = tabs.first(where: { $0.id == split.right }) else { return nil }
+        return (l, r)
+    }
+
+    /// Recently closed pages, newest last, for ⌘⇧T. Private tabs are never remembered.
+    @ObservationIgnored private var recentlyClosed: [(url: URL, index: Int)] = []
 
     @ObservationIgnored private var restoring = false
     @ObservationIgnored private static var blockRules: WKContentRuleList?
@@ -119,6 +136,11 @@ final class Browser {
 
     func close(_ tab: Tab) {
         guard let i = tabs.firstIndex(where: { $0.id == tab.id }) else { return }
+        if !tab.isPrivate, let url = tab.url {
+            recentlyClosed.append((url, i))
+            if recentlyClosed.count > 30 { recentlyClosed.removeFirst() }
+        }
+        if let split, split.left == tab.id || split.right == tab.id { self.split = nil }
         tabs.remove(at: i)
         tab.teardown()
         if tab.isPrivate && !tabs.contains(where: \.isPrivate) {
@@ -134,6 +156,35 @@ final class Browser {
 
     func closeSelected() {
         if let tab = selected { close(tab) }
+    }
+
+    var canReopenClosedTab: Bool { !recentlyClosed.isEmpty }
+
+    /// Brings back the most recently closed tab where it was.
+    func reopenClosedTab() {
+        guard let last = recentlyClosed.popLast() else { return }
+        let tab = newTab(url: last.url)
+        if let i = tabs.firstIndex(where: { $0.id == tab.id }) {
+            tabs.remove(at: i)
+            tabs.insert(tab, at: min(max(last.index, pinnedCount), tabs.count))
+        }
+        saveSession()
+    }
+
+    // MARK: Split view
+
+    /// Shows `other` next to the selected tab (or the next tab, or a new one).
+    func splitView(with other: Tab? = nil) {
+        guard let current = selected else { return }
+        let partner = other.flatMap { $0.id == current.id ? nil : $0 }
+            ?? tabs.first { $0.id != current.id && !$0.isPinned && tabs.firstIndex(of: $0)! > tabs.firstIndex(of: current)! }
+            ?? newTab(select: false, isPrivate: current.isPrivate)
+        split = (current.id, partner.id)
+        splitRatio = 0.5
+    }
+
+    func toggleSplitView() {
+        if visibleSplit != nil { split = nil } else { splitView() }
     }
 
     var pinnedCount: Int { tabs.filter(\.isPinned).count }
