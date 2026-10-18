@@ -237,7 +237,9 @@ private struct Aurora: View {
     }
 }
 
-/// A fragmented ring of light that breathes on its own and pulses with whatever is playing.
+/// A ring of Liquid Glass that breathes on its own and swells with whatever is playing.
+/// It's real macOS glass, so it bends the colored light drifting behind it; loose glass drops
+/// live in the same container, so the system melts them into the ring and pulls them apart like liquid.
 private struct Sonic: View {
     let look: WallpaperMood.Look
     let phase: Double
@@ -245,60 +247,113 @@ private struct Sonic: View {
     let music: MusicListener.Snapshot
 
     var body: some View {
-        Canvas { ctx, size in
-            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(look.color(0, 0.7, 0.05)))
-            let c = CGPoint(x: size.width / 2, y: size.height / 2)
+        GeometryReader { geo in
+            let side = min(geo.size.width, geo.size.height)
+            let radius = side * 0.24 * look.scale * (1 + Double(music.bass) * 0.06)
+            let levels = Self.smooth(music.levels)
             let bass = Double(music.bass)
-            let base = min(size.width, size.height) * 0.235 * look.scale * (1 + bass * 0.08)
+            let c = look.color
 
-            // Soft light filling the middle of the ring.
-            ctx.blendMode = .plusLighter
-            let glowR = base * 1.9
-            ctx.fill(Path(ellipseIn: CGRect(x: c.x - glowR, y: c.y - glowR, width: glowR * 2, height: glowR * 2)),
-                     with: .radialGradient(Gradient(colors: [look.color(0, 0.8, 0.22 * strength * (0.6 + bass)), .clear]),
-                                           center: c, startRadius: base * 0.2, endRadius: glowR))
+            ZStack {
+                c(0, 0.7, 0.05)
 
-            // Blur neighbouring bands together so the ring curves instead of spiking.
-            let raw = music.levels.map(Double.init)
-            var levels = raw
-            for _ in 0..<3 {
-                levels = levels.indices.map { i in
-                    (levels[max(0, i - 1)] + levels[i] * 2 + levels[min(levels.count - 1, i + 1)]) / 4
+                // Colored lights behind the glass, for it to refract. Music brightens them.
+                Canvas { ctx, size in
+                    ctx.blendMode = .plusLighter
+                    let mid = CGPoint(x: size.width / 2, y: size.height / 2)
+                    for i in 0..<5 {
+                        let fi = Double(i)
+                        let p = CGPoint(x: mid.x + cos(phase * 0.23 + fi * 1.3) * radius * 0.9,
+                                        y: mid.y + sin(phase * 0.31 + fi * 2.1) * radius * 0.9)
+                        let r = radius * (0.9 + 0.25 * sin(phase * 0.4 + fi))
+                        let col = c(Double(i % 3) * 0.06 - 0.05, 0.85, (0.5 + bass * 0.6) * strength)
+                        ctx.fill(Path(ellipseIn: CGRect(x: p.x - r, y: p.y - r, width: r * 2, height: r * 2)),
+                                 with: .radialGradient(Gradient(colors: [col, .clear]), center: p,
+                                                       startRadius: 0, endRadius: r))
+                    }
                 }
+
+                GlassEffectContainer(spacing: radius * 0.14) {
+                    ZStack {
+                        GlassRing(levels: levels, phase: phase, radius: radius)
+                            .fill(.clear)
+                            .glassEffect(.clear.tint(c(0, 0.6, 0.85).opacity(0.18 + bass * 0.2)),
+                                         in: GlassRing(levels: levels, phase: phase, radius: radius))
+
+                        ForEach(0..<9, id: \.self) { i in
+                            let drop = Self.drop(i, phase: phase, radius: radius, bass: bass)
+                            Circle()
+                                .fill(.clear)
+                                .frame(width: drop.size, height: drop.size)
+                                .glassEffect(.clear.tint(c(0.04, 0.6, 0.9).opacity(0.22)), in: Circle())
+                                .offset(x: drop.offset.x, y: drop.offset.y)
+                        }
+                    }
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+
+                // A soft halo so the ring glows into the dark.
+                GlassRing(levels: levels, phase: phase, radius: radius)
+                    .stroke(c(0, 0.7, 1).opacity((0.25 + Double(music.loudness) * 0.5) * strength), lineWidth: 2)
+                    .blur(radius: radius * 0.08)
+                    .blendMode(.plusLighter)
             }
-            let bands = levels.count
-            let points = 240
-            for strand in 0..<6 {
-                let s = Double(strand)
-                var prev: CGPoint?
-                for i in 0...points {
-                    let theta = Double(i) / Double(points) * 2 * .pi
-                    // Mirror the spectrum so the ring is symmetric: bass at the top and bottom.
-                    let u = theta < .pi ? theta / .pi : (2 * .pi - theta) / .pi
-                    let pos = u * Double(bands - 1)
-                    let k = min(bands - 2, Int(pos))
-                    let level = levels[k] + (levels[k + 1] - levels[k]) * (pos - Double(k))
-                    let wobble = 0.035 * sin(theta * 3 + phase * 0.55 + s * 1.1)
-                        + 0.02 * sin(theta * 5 - phase * 0.8 + s * 2.3)
-                    let r = base * (1 + wobble + level * (0.11 + 0.025 * s) + s * 0.01)
-                    let p = CGPoint(x: c.x + cos(theta - .pi / 2) * r, y: c.y + sin(theta - .pi / 2) * r)
-                    defer { prev = p }
-                    guard let prev else { continue }
+            .frame(width: geo.size.width, height: geo.size.height)
+        }
+    }
 
-                    // Break each strand into drifting fragments of light.
-                    let gate = sin(theta * 2 + phase * 0.35 + s * 1.7) * 0.75 + sin(theta * 3 - phase * 0.5 + s) * 0.25
-                    let alpha = pow(max(0, gate), 1.6) * (0.4 + level * 0.8) * strength
-                    guard alpha > 0.02 else { continue }
-                    var seg = Path()
-                    seg.move(to: prev)
-                    seg.addLine(to: p)
-                    let tint = look.color(0.02 * s - 0.04, 0.55 + level * 0.3, 1)
-                    ctx.stroke(seg, with: .color(tint.opacity(alpha * 0.06)), lineWidth: 22 + level * 16)
-                    ctx.stroke(seg, with: .color(tint.opacity(alpha * 0.16)), lineWidth: 7 + level * 6)
-                    ctx.stroke(seg, with: .color(tint.opacity(min(1, alpha * 0.9))), lineWidth: 1.2 + level * 1.2)
-                }
+    /// Loose drops orbiting near the ring: they drift out, split off, and melt back in.
+    private static func drop(_ i: Int, phase: Double, radius: Double, bass: Double) -> (offset: CGPoint, size: Double) {
+        let fi = Double(i)
+        let dir: Double = i % 2 == 0 ? 1 : -1
+        let theta = phase * 0.16 * dir + fi * 0.7
+        let dist = radius * (1 + 0.24 * sin(phase * 0.55 + fi * 1.9))
+        let size = radius * (0.11 + 0.05 * sin(phase * 0.9 + fi) + bass * 0.06)
+        return (CGPoint(x: cos(theta) * dist, y: sin(theta) * dist), size)
+    }
+
+    static func smooth(_ raw: [Float]) -> [Double] {
+        var levels = raw.map(Double.init)
+        for _ in 0..<3 {
+            levels = levels.indices.map { i in
+                (levels[max(0, i - 1)] + levels[i] * 2 + levels[min(levels.count - 1, i + 1)]) / 4
             }
         }
+        return levels
+    }
+}
+
+/// A wobbly band: outer and inner edges follow the music, wound opposite ways so the middle is a hole.
+private struct GlassRing: Shape {
+    let levels: [Double]
+    let phase: Double
+    let radius: Double
+
+    func path(in rect: CGRect) -> Path {
+        let mid = CGPoint(x: rect.midX, y: rect.midY)
+        let n = 160
+        func level(_ theta: Double) -> Double {
+            let u = theta < .pi ? theta / .pi : (2 * .pi - theta) / .pi
+            let pos = u * Double(levels.count - 1)
+            let k = min(levels.count - 2, Int(pos))
+            return levels[k] + (levels[k + 1] - levels[k]) * (pos - Double(k))
+        }
+        func point(_ i: Int, outer: Bool) -> CGPoint {
+            let theta = Double(i % n) / Double(n) * 2 * .pi
+            let lv = level(theta)
+            let center = radius * (1 + 0.045 * sin(theta * 3 + phase * 0.5) + 0.025 * sin(theta * 5 - phase * 0.7) + lv * 0.08)
+            let half = radius * (0.07 + lv * 0.07 + 0.015 * sin(theta * 4 + phase * 0.9))
+            let r = outer ? center + half : center - half
+            return CGPoint(x: mid.x + cos(theta - .pi / 2) * r, y: mid.y + sin(theta - .pi / 2) * r)
+        }
+        var path = Path()
+        path.move(to: point(0, outer: true))
+        for i in 1...n { path.addLine(to: point(i, outer: true)) }
+        path.closeSubpath()
+        path.move(to: point(0, outer: false))
+        for i in stride(from: n, through: 0, by: -1) { path.addLine(to: point(i, outer: false)) }
+        path.closeSubpath()
+        return path
     }
 }
 
