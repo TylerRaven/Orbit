@@ -30,6 +30,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                                                    queue: .main) { _ in MusicListener.shared.sync() }
             if Browser.shared.tabs.isEmpty { Browser.shared.restoreSession() }
             DefaultBrowser.considerAsking()
+            Updater.shared.start()
         }
     }
 
@@ -51,6 +52,12 @@ struct BrowserCommands: Commands {
     private var browser: Browser { Browser.shared }
 
     var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") {
+                Updater.shared.showBanner = true
+                Task { await Updater.shared.check() }
+            }
+        }
         CommandGroup(replacing: .newItem) {
             Button("New Tab") { browser.newTab() }
                 .keyboardShortcut("t")

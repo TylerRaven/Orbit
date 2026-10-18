@@ -365,6 +365,22 @@ struct ContentView: View {
         return .init(topLeading: r, topTrailing: r)
     }
 
+    /// Notes that slide up from the bottom of the page: a new version, the default-browser ask.
+    private var bottomNotes: some View {
+        VStack(spacing: 10) {
+            if Updater.shared.showBanner, Updater.shared.status.showsBanner {
+                UpdateBanner(accent: accent)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if browser.showDefaultPrompt {
+                DefaultBrowserPrompt(accent: accent)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+        }
+        .padding(.bottom, 18)
+        .animation(.spring(duration: 0.3), value: Updater.shared.showBanner)
+    }
+
     /// The page area: edge to edge by default, or an inset card with "Border around pages".
     private var card: some View {
         let shape = UnevenRoundedRectangle(cornerRadii: pageCorners, style: .continuous)
@@ -392,13 +408,7 @@ struct ContentView: View {
                         .transition(.opacity)
                 }
             }
-            .overlay(alignment: .bottom) {
-                if browser.showDefaultPrompt {
-                    DefaultBrowserPrompt(accent: accent)
-                        .padding(.bottom, 18)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                }
-            }
+            .overlay(alignment: .bottom) { bottomNotes }
             .overlay {
                 if Reader.shared.article != nil {
                     ReaderPanel(accent: accent)

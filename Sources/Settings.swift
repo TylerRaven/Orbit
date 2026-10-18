@@ -16,6 +16,7 @@ enum Pref {
     static let pageBorder = "pageBorder"
     static let autoPiP = "autoPiP"
     static let sleepAfter = "sleepAfter"
+    static let autoUpdate = "autoUpdate"
 
     // Start page
     static let wallpaper = "wallpaper"
@@ -45,6 +46,7 @@ enum Pref {
             showPinsBar: true,
             autoPiP: true,
             sleepAfter: 20,
+            autoUpdate: true,
             wallpaper: WallpaperStyle.aurora.rawValue,
             wallpaperReactive: true,
             wallpaperIntensity: 0.8,
@@ -187,6 +189,7 @@ struct GeneralSettings: View {
                 Toggle("Use Private Cloud Compute when available", isOn: $aiCloud)
                     .help("Apple's private servers handle longer pages. Falls back to on-device automatically.")
             }
+            UpdateSettings()
         }
         .formStyle(.grouped)
         .fixedSize(horizontal: false, vertical: true)
