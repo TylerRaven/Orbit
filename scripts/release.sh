@@ -39,5 +39,6 @@ fi
 
 echo "▸ Publishing"
 git push -q origin HEAD && git push -q origin "v$VERSION"
-"$GH" release create "v$VERSION" build/Orbit.dmg --repo "$REPO" --title "Orbit $VERSION" --generate-notes
+NOTES="**Installing:** open Orbit.dmg and drag Orbit to Applications. The first time, macOS may say Orbit \"can't be opened\" because it isn't from the App Store: right-click Orbit in Applications, choose **Open**, then **Open** again (or System Settings → Privacy & Security → **Open Anyway**). After that, Orbit updates itself."
+"$GH" release create "v$VERSION" build/Orbit.dmg --repo "$REPO" --title "Orbit $VERSION" --notes "$NOTES" --generate-notes
 echo "✓ Released Orbit $VERSION — every copy will offer it within a day (or via Orbit ▸ Check for Updates…)"

@@ -65,9 +65,24 @@ final class Downloads: NSObject, WKDownloadDelegate {
         observers.removeValue(forKey: entry.id)
         update(entry.id) { $0.state = .done; $0.progress = 1 }
         if let dest = items.first(where: { $0.id == entry.id })?.destination {
+            Self.quarantine(dest, from: download.originalRequest?.url)
             // Bounces the Downloads stack in the Dock.
             DistributedNotificationCenter.default().post(name: .init("com.apple.DownloadFileFinished"), object: dest.path)
         }
+    }
+
+    /// Marks a finished download as coming from the internet, so macOS checks it (Gatekeeper,
+    /// "downloaded from…" warnings) before it opens, like it does for Safari downloads.
+    private static func quarantine(_ file: URL, from source: URL?) {
+        var props: [String: Any] = [
+            kLSQuarantineAgentNameKey as String: "Orbit",
+            kLSQuarantineTypeKey as String: kLSQuarantineTypeWebDownload as String,
+        ]
+        if let source { props[kLSQuarantineDataURLKey as String] = source }
+        var url = file
+        var values = URLResourceValues()
+        values.quarantineProperties = props
+        try? url.setResourceValues(values)
     }
 
     func download(_ download: WKDownload, didFailWithError error: Error, resumeData: Data?) {

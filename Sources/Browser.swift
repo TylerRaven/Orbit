@@ -23,6 +23,10 @@ final class Browser {
     /// Link being previewed with ⌥-hover, in its own temporary web view.
     var peek: Tab?
     var showDefaultPrompt = false
+    /// A site asking for the camera or microphone.
+    var mediaRequest: MediaRequest?
+    /// A short note at the bottom of the page (screenshot saved…).
+    var toast: Toast?
     /// Tab waiting for a translation session.
     var translating: Tab?
     var editingSpace: Space?
@@ -58,7 +62,7 @@ final class Browser {
     @ObservationIgnored private var recentlyClosed: [(url: URL, index: Int)] = []
 
     @ObservationIgnored private var restoring = false
-    @ObservationIgnored private static var blockRules: WKContentRuleList?
+    @ObservationIgnored static var blockRules: WKContentRuleList?
     @ObservationIgnored private static var privacyRules: WKContentRuleList?
     /// In-memory cookies/storage shared by private tabs; thrown away when the last one closes.
     @ObservationIgnored private var privateStore: WKWebsiteDataStore?
@@ -73,7 +77,7 @@ final class Browser {
     /// Frees memory right now: every tab except the ones on screen goes to sleep.
     func sleepOtherTabs() {
         let visible = Set([selectedID, visibleSplit?.left.id, visibleSplit?.right.id].compactMap { $0 })
-        for tab in tabs where !visible.contains(tab.id) && !tab.isAsleep {
+        for tab in tabs where !visible.contains(tab.id) && !tab.isAsleep && !tab.isCapturing {
             tab.webView.requestMediaPlaybackState { state in
                 MainActor.assumeIsolated { if state != .playing { tab.sleep() } }
             }
@@ -85,7 +89,7 @@ final class Browser {
         guard minutes > 0 else { return }
         let cutoff = Date().addingTimeInterval(-Double(minutes) * 60)
         let visible = Set([selectedID, visibleSplit?.left.id, visibleSplit?.right.id, peek?.id].compactMap { $0 })
-        for tab in tabs where !tab.isAsleep && !visible.contains(tab.id) && tab.lastActive < cutoff && !tab.isPlayingVideo {
+        for tab in tabs where !tab.isAsleep && !visible.contains(tab.id) && tab.lastActive < cutoff && !tab.isPlayingVideo && !tab.isCapturing {
             // Never sleep a tab that's making sound (music, a call…).
             tab.webView.requestMediaPlaybackState { state in
                 MainActor.assumeIsolated { if state != .playing { tab.sleep() } }

@@ -12,6 +12,7 @@ struct ContentView: View {
     @FocusState private var focus: Field?
     // Plain State storage: the @State macro plugin only ships with full Xcode.
     private let addressState = State(initialValue: "")
+    private let siteControlsState = State(initialValue: false)
     private var address: String {
         get { addressState.wrappedValue }
         nonmutating set { addressState.wrappedValue = newValue }
@@ -271,14 +272,36 @@ struct ContentView: View {
         .glassEffect(.regular, in: Capsule())
     }
 
+    /// The lock (or private eye) at the start of the address bar. Opens this site's controls.
+    @ViewBuilder private var siteButton: some View {
+        let tab = browser.selected
+        let icon = Image(systemName: tab?.isPrivate == true ? "eye.slash.fill"
+                         : tab?.url?.scheme == "https" ? "lock.fill" : "magnifyingglass")
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(tab?.isPrivate == true ? AnyShapeStyle(Color(hue: Tab.privateHue, saturation: 0.6, brightness: 1)) : AnyShapeStyle(.secondary))
+            .frame(width: 14)
+        if let tab, tab.url?.host() != nil {
+            Button { siteControlsState.wrappedValue.toggle() } label: { icon }
+                .buttonStyle(.plain)
+                .help(tab.isPrivate ? "Private tab: nothing is saved. Click for site settings." : "Site settings")
+                .popover(isPresented: siteControlsState.projectedValue, arrowEdge: .bottom) {
+                    SiteControls(tab: tab, accent: accent)
+                }
+            if tab.isCapturing {
+                Image(systemName: tab.isUsingCamera ? "video.fill" : "mic.fill")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.red)
+                    .help("This page is using your \(tab.isUsingCamera ? "camera" : "microphone")")
+                    .onTapGesture { siteControlsState.wrappedValue = true }
+            }
+        } else {
+            icon.help(tab?.isPrivate == true ? "Private tab: nothing is saved" : "")
+        }
+    }
+
     private var addressBar: some View {
         HStack(spacing: 8) {
-            Image(systemName: browser.selected?.isPrivate == true ? "eye.slash.fill"
-                  : browser.selected?.url?.scheme == "https" ? "lock.fill" : "magnifyingglass")
-                .font(.system(size: 11, weight: .semibold))
-                .foregroundStyle(browser.selected?.isPrivate == true ? AnyShapeStyle(Color(hue: Tab.privateHue, saturation: 0.6, brightness: 1)) : AnyShapeStyle(.secondary))
-                .frame(width: 14)
-                .help(browser.selected?.isPrivate == true ? "Private tab: nothing is saved" : "")
+            siteButton
             TextField(browser.selected?.isPrivate == true ? "Search privately" : "Search", text: addressState.projectedValue)
                 .textFieldStyle(.plain)
                 .focused($focus, equals: .address)
@@ -368,6 +391,10 @@ struct ContentView: View {
     /// Notes that slide up from the bottom of the page: a new version, the default-browser ask.
     private var bottomNotes: some View {
         VStack(spacing: 10) {
+            if let toast = browser.toast {
+                ToastView(toast: toast, accent: accent)
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
             if Updater.shared.showBanner, Updater.shared.status.showsBanner {
                 UpdateBanner(accent: accent)
                     .transition(.move(edge: .bottom).combined(with: .opacity))
@@ -379,6 +406,7 @@ struct ContentView: View {
         }
         .padding(.bottom, 18)
         .animation(.spring(duration: 0.3), value: Updater.shared.showBanner)
+        .animation(.spring(duration: 0.3), value: browser.toast)
     }
 
     /// The page area: edge to edge by default, or an inset card with "Border around pages".
@@ -388,12 +416,17 @@ struct ContentView: View {
             .clipShape(shape)
             .overlay(shape.strokeBorder(Color.primary.opacity(pageBorder ? 0.08 : 0)))
             .overlay(alignment: .top) {
-                if let offer = browser.passwordOffer {
+                if let request = browser.mediaRequest {
+                    MediaPermissionBanner(request: request, accent: accent)
+                        .padding(12)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                } else if let offer = browser.passwordOffer {
                     PasswordBanner(offer: offer, accent: accent)
                         .padding(12)
                         .transition(.move(edge: .top).combined(with: .opacity))
                 }
             }
+            .animation(.spring(duration: 0.3), value: browser.mediaRequest)
             .overlay(alignment: .topTrailing) {
                 if browser.showFind, let tab = browser.selected {
                     FindBar(tab: tab, accent: accent)

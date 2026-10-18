@@ -42,6 +42,15 @@ final class Tab: NSObject, Identifiable {
     var glowPulse = 0
     /// Saved logins for the current site, for the key button.
     var logins: [Login] = []
+    var isMuted = false
+    /// Page zoom; saved per site (except in private tabs) by `setZoom`.
+    var zoom: Double = 1 { didSet { webView.pageZoom = zoom } }
+    /// Dark mode in a private tab, which isn't saved to the site's settings.
+    var privateDark = false
+    var isUsingCamera = false
+    var isUsingMicrophone = false
+    /// On a call: never put to sleep.
+    var isCapturing: Bool { isUsingCamera || isUsingMicrophone }
 
     @ObservationIgnored weak var browser: Browser?
     @ObservationIgnored private var observers: [NSKeyValueObservation] = []
@@ -103,6 +112,12 @@ final class Tab: NSObject, Identifiable {
             },
             webView.observe(\.canGoForward, options: [.initial, .new]) { [weak self] wv, _ in
                 MainActor.assumeIsolated { self?.canGoForward = wv.canGoForward }
+            },
+            webView.observe(\.cameraCaptureState, options: [.initial, .new]) { [weak self] wv, _ in
+                MainActor.assumeIsolated { self?.isUsingCamera = wv.cameraCaptureState == .active }
+            },
+            webView.observe(\.microphoneCaptureState, options: [.initial, .new]) { [weak self] wv, _ in
+                MainActor.assumeIsolated { self?.isUsingMicrophone = wv.microphoneCaptureState == .active }
             },
         ]
     }
@@ -208,10 +223,13 @@ extension Tab: WKNavigationDelegate {
     func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
         faviconURL = nil
         refreshLogins()
+        SiteTools.apply(to: self)
     }
 
     func refreshLogins() {
-        logins = webView.url?.host().map(PasswordStore.logins(for:)) ?? []
+        // Never offer saved passwords on a page that would send them unencrypted.
+        guard let url = webView.url, url.scheme == "https" || url.host() == "localhost" else { logins = []; return }
+        logins = url.host().map(PasswordStore.logins(for:)) ?? []
     }
 
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction,
@@ -234,10 +252,17 @@ extension Tab: WKNavigationDelegate {
             return (.cancel, preferences)
         }
 
-        // Hand non-web links (mailto:, zoommtg:, etc.) to macOS.
+        // Sites you've turned ad blocking off for.
+        if navigationAction.targetFrame?.isMainFrame == true {
+            SiteTools.updateBlocking(for: self, host: navigationAction.request.url?.host())
+        }
+
+        // Hand non-web links (mailto:, zoommtg:, etc.) to macOS, but only after asking,
+        // so a page can't launch apps on its own.
         if let url = navigationAction.request.url, let scheme = url.scheme?.lowercased(),
            !["http", "https", "about", "blob", "data", "file"].contains(scheme) {
-            NSWorkspace.shared.open(url)
+            ExternalApps.open(url, from: webView.url,
+                              userClicked: navigationAction.navigationType == .linkActivated)
             return (.cancel, preferences)
         }
         return (.allow, preferences)
@@ -324,6 +349,21 @@ extension Tab: WKUIDelegate {
         alert.addButton(withTitle: "OK")
         alert.addButton(withTitle: "Cancel")
         return alert.runModal() == .alertFirstButtonReturn ? field.stringValue : nil
+    }
+
+    /// Camera/microphone: use the site's saved choice, otherwise ask with a banner.
+    func webView(_ webView: WKWebView, requestMediaCapturePermissionFor origin: WKSecurityOrigin,
+                 initiatedByFrame frame: WKFrameInfo, type: WKMediaCaptureType,
+                 decisionHandler: @escaping (WKPermissionDecision) -> Void) {
+        let host = origin.host
+        guard let browser, !host.isEmpty else { return decisionHandler(.deny) }
+        let request = MediaRequest(host: host, camera: type != .microphone, microphone: type != .camera,
+                                   fromPrivateTab: isPrivate, decide: decisionHandler)
+        if let saved = request.remembered { return decisionHandler(saved) }
+        // A newer request replaces an unanswered one.
+        browser.mediaRequest?.decide(.deny)
+        if browser.selectedID != id { browser.select(self) }
+        browser.mediaRequest = request
     }
 
     func webView(_ webView: WKWebView, runOpenPanelWith parameters: WKOpenPanelParameters,

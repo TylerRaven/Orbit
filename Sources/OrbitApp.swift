@@ -91,7 +91,7 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("=")
             Button("Zoom Out") { zoom(by: -0.1) }
                 .keyboardShortcut("-")
-            Button("Actual Size") { browser.selected?.webView.pageZoom = 1 }
+            Button("Actual Size") { if let tab = browser.selected { SiteTools.setZoom(1, in: tab) } }
                 .keyboardShortcut("0")
             Divider()
         }
@@ -127,6 +127,16 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("j")
             Button("Summarize Page") { Assistant.shared.summarize(browser.selected) }
                 .keyboardShortcut("s", modifiers: [.command, .shift])
+            Divider()
+            Button("Take Screenshot") { if let tab = browser.selected { Screenshot.take(tab, fullPage: false) } }
+                .keyboardShortcut("2", modifiers: [.command, .shift])
+            Button("Screenshot Full Page") { if let tab = browser.selected { Screenshot.take(tab, fullPage: true) } }
+                .keyboardShortcut("2", modifiers: [.command, .shift, .option])
+            Button("Dark Mode for This Site") { if let tab = browser.selected { SiteTools.toggleDark(tab) } }
+                .keyboardShortcut("d", modifiers: [.command, .option])
+            Button("Mute Tab") { if let tab = browser.selected { SiteTools.toggleMute(tab) } }
+                .keyboardShortcut("m", modifiers: [.command, .option])
+            Divider()
             Button("Fill Password") {
                 if let tab = browser.selected, let login = tab.logins.first {
                     PasswordAgent.shared.fill(login, in: tab.webView)
@@ -167,7 +177,7 @@ struct BrowserCommands: Commands {
     }
 
     private func zoom(by delta: CGFloat) {
-        guard let wv = browser.selected?.webView else { return }
-        wv.pageZoom = min(3, max(0.3, wv.pageZoom + delta))
+        guard let tab = browser.selected else { return }
+        SiteTools.setZoom(tab.zoom + delta, in: tab)
     }
 }

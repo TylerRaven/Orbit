@@ -40,6 +40,8 @@ final class Updater {
         return r.contains("/") ? r : nil
     }
 
+    private static var isTestFeed: Bool { ProcessInfo.processInfo.environment["ORBIT_UPDATE_FEED"] != nil }
+
     /// GitHub's latest-release endpoint, or ORBIT_UPDATE_FEED to test against a local copy of that JSON.
     private static var feed: URL? {
         if let test = ProcessInfo.processInfo.environment["ORBIT_UPDATE_FEED"] { return URL(string: test) }
@@ -99,6 +101,9 @@ final class Updater {
             guard let asset = json.assets.first(where: { $0.name.lowercased().hasSuffix(".dmg") }),
                   let dmg = URL(string: asset.browser_download_url) else {
                 throw UpdateError("Release \(version) has no .dmg attached.")
+            }
+            guard Self.isTestFeed || (dmg.scheme == "https" && dmg.host()?.hasSuffix("github.com") == true) else {
+                throw UpdateError("Release \(version) points somewhere other than GitHub.")
             }
             status = .available(Release(version: version, notes: json.body ?? "", dmg: dmg))
             showBanner = true

@@ -224,6 +224,19 @@ struct CommandPalette: View {
                 b.togglePin(tab)
             }, at: 1)
             list.insert(PaletteItem(icon: "xmark.square", title: "Close Tab", subtitle: "⌘W") { b.close(tab) }, at: 2)
+            if tab.url?.host() != nil {
+                list.append(contentsOf: [
+                    PaletteItem(icon: "camera.viewfinder", title: "Take Screenshot", subtitle: "⇧⌘2") {
+                        Screenshot.take(tab, fullPage: false)
+                    },
+                    PaletteItem(icon: "doc.viewfinder", title: "Screenshot Full Page", subtitle: "⌥⇧⌘2") {
+                        Screenshot.take(tab, fullPage: true)
+                    },
+                    PaletteItem(icon: "moon", title: "Dark Mode for This Site", subtitle: "⌥⌘D") { SiteTools.toggleDark(tab) },
+                    PaletteItem(icon: tab.isMuted ? "speaker.wave.2" : "speaker.slash",
+                                title: tab.isMuted ? "Unmute Tab" : "Mute Tab", subtitle: "⌥⌘M") { SiteTools.toggleMute(tab) },
+                ])
+            }
             if let url = tab.url {
                 list.append(PaletteItem(icon: "link", title: "Copy Link", subtitle: url.absoluteString) {
                     NSPasteboard.general.clearContents()
