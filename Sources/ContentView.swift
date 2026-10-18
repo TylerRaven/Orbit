@@ -49,9 +49,6 @@ struct ContentView: View {
         }
         .animation(.easeOut(duration: 0.15), value: browser.showPalette)
         .ignoresSafeArea()
-        .onChange(of: address) {
-            if focus == .address, browser.selected?.isBlank == true { WallpaperMood.shared.react(to: address) }
-        }
         .onChange(of: browser.focusAddressRequest) {
             focus = browser.selected?.isBlank == true ? .start : .address
         }
@@ -254,6 +251,7 @@ struct ContentView: View {
                 .strokeBorder(focus == .address ? accent.color
                               : Color(hue: pageHue, saturation: 0.7, brightness: 1).opacity(0.3 * AmbientLevel.current.strength),
                               lineWidth: focus == .address ? 2 : 1)
+                .animation(.easeInOut(duration: 1.3), value: pageHue)
         )
         .modifier(PageGlowPulse(trigger: browser.selected?.glowPulse ?? 0, hue: pageHue, radius: 11))
         .overlay(alignment: .bottom) {
@@ -298,8 +296,10 @@ struct ContentView: View {
             .animation(.spring(duration: 0.3), value: browser.showFind)
             .animation(.spring(duration: 0.35), value: Assistant.shared.isOpen)
             .shadow(color: .black.opacity(0.14), radius: 10, y: 3)
-            .shadow(color: Color(hue: pageHue, saturation: 0.75, brightness: 1)
-                        .opacity(0.28 * AmbientLevel.current.strength), radius: 22)
+            .animation(.easeInOut(duration: 1.3)) {
+                $0.shadow(color: Color(hue: pageHue, saturation: 0.75, brightness: 1)
+                              .opacity(0.28 * AmbientLevel.current.strength), radius: 22)
+            }
             .modifier(PageGlowPulse(trigger: browser.selected?.glowPulse ?? 0, hue: pageHue, radius: 12))
     }
 

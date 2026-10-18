@@ -67,7 +67,9 @@ struct TabGlow: ViewModifier {
                     LoadingShimmer(color: color, radius: radius)
                 }
             }
-            .shadow(color: selected ? color.opacity(0.38 * level) : .clear, radius: 7)
+            .animation(.easeInOut(duration: 1.0)) {
+                $0.shadow(color: selected ? color.opacity(0.38 * level) : .clear, radius: 7)
+            }
             .keyframeAnimator(initialValue: 0.0, trigger: tab.glowPulse) { view, v in
                 view
                     .shadow(color: color.opacity(0.95 * v * level), radius: 2 + 18 * v)
@@ -122,8 +124,7 @@ struct AmbientBackdrop: View {
                     for b in blobs {
                         let center = CGPoint(x: size.width * b.x, y: size.height * b.y)
                         let r = side * b.r * frame.look.scale
-                        let c = Color(hue: (frame.look.hue + b.dh + 1).truncatingRemainder(dividingBy: 1),
-                                      saturation: 0.8, brightness: 1)
+                        let c = frame.look.color(b.dh, 0.8, 1)
                             .opacity(0.22 * level * min(1.4, frame.look.intensity) * (1 + frame.energy * 0.6))
                         g.fill(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
                                with: .radialGradient(Gradient(colors: [c, c.opacity(0)]), center: center,

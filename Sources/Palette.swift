@@ -34,10 +34,7 @@ struct CommandPalette: View {
                     .font(.system(size: 17))
                     .focused($focused)
                     .onSubmit { run(items, index) }
-                    .onChange(of: query) {
-                        indexState.wrappedValue = 0
-                        WallpaperMood.shared.react(to: query)
-                    }
+                    .onChange(of: query) { indexState.wrappedValue = 0 }
                     .onKeyPress(.downArrow) {
                         indexState.wrappedValue = min(index + 1, items.count - 1); return .handled
                     }

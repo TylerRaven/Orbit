@@ -119,7 +119,6 @@ struct AIPanel: View {
                 .lineLimit(1...5)
                 .focused($focused)
                 .onSubmit(send)
-                .onChange(of: inputState.wrappedValue) { WallpaperMood.shared.react(to: inputState.wrappedValue) }
             Button(action: send) {
                 Image(systemName: ai.isBusy ? "stop.fill" : "arrow.up")
                     .font(.system(size: 12, weight: .bold))
@@ -141,7 +140,6 @@ struct AIPanel: View {
         if ai.isBusy { ai.reset(); return }
         let q = inputState.wrappedValue
         inputState.wrappedValue = ""
-        WallpaperMood.shared.pulse(0.8)
         ai.ask(q, about: tab)
     }
 

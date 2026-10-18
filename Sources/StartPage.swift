@@ -138,11 +138,9 @@ struct StartPage: View {
                 .font(.system(size: 17))
                 .focused(focus, equals: .start)
                 .onSubmit {
-                    WallpaperMood.shared.pulse(1.2)
                     onSubmit(query)
                     if query.hasPrefix("?") { queryState.wrappedValue = "" }
                 }
-                .onChange(of: query) { WallpaperMood.shared.react(to: query) }
         }
         .padding(.horizontal, 20)
         .frame(height: 52)
@@ -468,7 +466,7 @@ struct StartPageSettings: View {
                     .buttonStyle(.plain)
                 }
             }
-            Toggle("Reacts to what you type", isOn: $reactive)
+            Toggle("Glows with the link you point at", isOn: $reactive)
             HStack {
                 Text("Intensity")
                 Slider(value: $intensity, in: 0.3...1.4)
