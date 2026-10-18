@@ -121,7 +121,6 @@ final class WallpaperMood {
     func hover(host: String?) {
         guard let host else { hoverHue = nil; return }
         hoverHue = Self.siteHue(host)
-        pulse(0.5)
     }
 
     /// A burst of energy, e.g. when a page finishes opening.

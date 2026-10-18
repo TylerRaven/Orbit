@@ -123,10 +123,7 @@ struct PinChip: View {
                      in: RoundedRectangle(cornerRadius: 8, style: .continuous))
         .contentShape(Rectangle())
         .onTapGesture { open(newTab: NSEvent.modifierFlags.contains(.command)) }
-        .onHover { inside in
-            hoverState.wrappedValue = inside
-            WallpaperMood.shared.hover(host: inside ? pin.host : nil)
-        }
+        .onHover { hoverState.wrappedValue = $0 }
         .help(pin.url)
         .contextMenu {
             Button("Open") { open(newTab: false) }
