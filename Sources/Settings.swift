@@ -15,6 +15,7 @@ enum Pref {
     static let musicGlow = "musicGlow"
     static let pageBorder = "pageBorder"
     static let autoPiP = "autoPiP"
+    static let sleepAfter = "sleepAfter"
 
     // Start page
     static let wallpaper = "wallpaper"
@@ -43,6 +44,7 @@ enum Pref {
             aiCloud: true,
             showPinsBar: true,
             autoPiP: true,
+            sleepAfter: 20,
             wallpaper: WallpaperStyle.aurora.rawValue,
             wallpaperReactive: true,
             wallpaperIntensity: 0.8,
@@ -125,6 +127,8 @@ struct SettingsView: View {
                 .tabItem { Label("Start Page", systemImage: "sparkles.rectangle.stack") }
             PasswordSettings()
                 .tabItem { Label("Passwords", systemImage: "key") }
+            ImportSettings()
+                .tabItem { Label("Import", systemImage: "square.and.arrow.down") }
         }
         .frame(width: 480)
     }
@@ -137,6 +141,7 @@ struct GeneralSettings: View {
     @AppStorage(Pref.offerPasswords) private var offerPasswords = true
     @AppStorage(Pref.aiCloud) private var aiCloud = true
     @AppStorage(Pref.autoPiP) private var autoPiP = true
+    @AppStorage(Pref.sleepAfter) private var sleepAfter = 20
     private let isDefaultState = State(initialValue: DefaultBrowser.isDefault)
 
     var body: some View {
@@ -148,6 +153,14 @@ struct GeneralSettings: View {
                 .onChange(of: blockAds) { Browser.shared.setBlocking(blockAds) }
             Toggle("Reopen tabs from last time", isOn: $restoreTabs)
             Toggle("Offer to save passwords", isOn: $offerPasswords)
+            Picker("Sleep unused tabs after", selection: $sleepAfter) {
+                Text("Never").tag(0)
+                Text("5 minutes").tag(5)
+                Text("20 minutes").tag(20)
+                Text("1 hour").tag(60)
+                Text("4 hours").tag(240)
+            }
+            .help("Sleeping tabs free their memory and wake instantly when you click them. Tabs playing sound never sleep.")
             Toggle("Pop videos out when switching tabs", isOn: $autoPiP)
                 .help("Picture in picture: a playing video keeps going in a small floating window.")
             LabeledContent("Default browser") {
@@ -299,5 +312,55 @@ struct PasswordSettings: View {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(pw, forType: .string)
         }
+    }
+}
+
+struct ImportSettings: View {
+    private let resultState = State<String?>(initialValue: nil)
+    private let sources = Importer.chromiumSources()
+
+    var body: some View {
+        Form {
+            Section("From another browser on this Mac") {
+                if sources.isEmpty {
+                    Text("No Chrome, Opera, Brave, Edge, Arc or Vivaldi profile found.").foregroundStyle(.secondary)
+                }
+                ForEach(sources) { source in
+                    LabeledContent(source.name) {
+                        Button("Import Bookmarks & History") {
+                            resultState.wrappedValue = Importer.importChromium(source).summary
+                        }
+                    }
+                }
+                Text("Bookmarks-bar items become pins; everything else is searchable with ⌘K.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            Section("From a file") {
+                LabeledContent("Bookmarks (.html)") {
+                    Button("Choose File…") {
+                        if let file = Importer.chooseFile(types: ["html", "htm"]) {
+                            resultState.wrappedValue = Importer.importBookmarksFile(file).summary
+                        }
+                    }
+                }
+                Text("Safari: File › Export › Bookmarks…  Firefox: Bookmarks › Manage › Export.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+                LabeledContent("Passwords (.csv)") {
+                    Button("Choose File…") {
+                        if let file = Importer.chooseFile(types: ["csv"]) {
+                            resultState.wrappedValue = Importer.importPasswordsFile(file).summary
+                                + " Delete the CSV file now; it has your passwords in plain text."
+                        }
+                    }
+                }
+                Text("Chrome/Opera: Settings › Passwords › Export.  Safari / Passwords app: File › Export All Passwords.")
+                    .font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+            if let result = resultState.wrappedValue {
+                Section { Label(result, systemImage: "checkmark.circle.fill").foregroundStyle(.green) }
+            }
+        }
+        .formStyle(.grouped)
+        .frame(height: 440)
     }
 }

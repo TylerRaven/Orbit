@@ -57,6 +57,16 @@ final class History {
             .map { $0 }
     }
 
+    /// Adds imported entries (keeping your own visits when both have the same page); returns how many were new.
+    func merge(_ imported: [HistoryEntry]) -> Int {
+        let known = Set(entries.map(\.url))
+        let fresh = imported.filter { !known.contains($0.url) }
+        entries = (entries + fresh).sorted { $0.date > $1.date }
+        if entries.count > Self.limit { entries.removeLast(entries.count - Self.limit) }
+        scheduleSave()
+        return fresh.count
+    }
+
     func remove(_ entry: HistoryEntry) {
         entries.removeAll { $0.url == entry.url }
         scheduleSave()

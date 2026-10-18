@@ -141,6 +141,7 @@ struct BrowserCommands: Commands {
             Button("Edit Space…") { browser.editingSpace = browser.currentSpace }
         }
         CommandMenu("Tabs") {
+            Button("Sleep Other Tabs") { browser.sleepOtherTabs() }
             Button("Pin / Unpin Tab") { if let tab = browser.selected { browser.togglePin(tab) } }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
             Divider()

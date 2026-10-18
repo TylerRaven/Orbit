@@ -171,6 +171,12 @@ struct CommandPalette: View {
             }, at: 0)
         }
 
+        for mark in Bookmarks.shared.search(q) {
+            items.append(PaletteItem(icon: "bookmark", title: mark.title, subtitle: mark.url) {
+                Browser.shared.go(mark.url)
+            })
+        }
+
         for entry in History.shared.search(q, limit: q.isEmpty ? 5 : 8) {
             items.append(PaletteItem(icon: "clock.arrow.circlepath",
                                      title: entry.title.isEmpty ? entry.url : entry.title,
@@ -211,6 +217,7 @@ struct CommandPalette: View {
             },
             PaletteItem(icon: "gearshape", title: "Settings", subtitle: "⌘,", action: openSettings),
             PaletteItem(icon: "trash", title: "Clear History") { History.shared.clear() },
+            PaletteItem(icon: "moon.zzz", title: "Sleep Other Tabs", subtitle: "Free up memory") { b.sleepOtherTabs() },
         ]
         if let tab {
             list.insert(PaletteItem(icon: tab.isPinned ? "pin.slash" : "pin", title: tab.isPinned ? "Unpin Tab" : "Pin Tab") {

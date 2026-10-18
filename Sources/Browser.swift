@@ -8,7 +8,12 @@ final class Browser {
     static let shared = Browser()
 
     var tabs: [Tab] = []
-    var selectedID: UUID?
+    var selectedID: UUID? {
+        didSet {
+            if let old = oldValue, old != selectedID { tabs.first { $0.id == old }?.lastActive = Date() }
+            selected?.activate()
+        }
+    }
     /// Bumped to ask the UI to focus the address bar.
     var focusAddressRequest = 0
     var passwordOffer: PasswordOffer?
@@ -58,7 +63,35 @@ final class Browser {
     /// In-memory cookies/storage shared by private tabs; thrown away when the last one closes.
     @ObservationIgnored private var privateStore: WKWebsiteDataStore?
 
-    private init() {}
+    private init() {
+        // Every minute, put tabs to sleep that haven't been looked at for a while.
+        Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in
+            MainActor.assumeIsolated { Browser.shared.sleepIdleTabs() }
+        }
+    }
+
+    /// Frees memory right now: every tab except the ones on screen goes to sleep.
+    func sleepOtherTabs() {
+        let visible = Set([selectedID, visibleSplit?.left.id, visibleSplit?.right.id].compactMap { $0 })
+        for tab in tabs where !visible.contains(tab.id) && !tab.isAsleep {
+            tab.webView.requestMediaPlaybackState { state in
+                MainActor.assumeIsolated { if state != .playing { tab.sleep() } }
+            }
+        }
+    }
+
+    func sleepIdleTabs() {
+        let minutes = UserDefaults.standard.integer(forKey: Pref.sleepAfter)
+        guard minutes > 0 else { return }
+        let cutoff = Date().addingTimeInterval(-Double(minutes) * 60)
+        let visible = Set([selectedID, visibleSplit?.left.id, visibleSplit?.right.id, peek?.id].compactMap { $0 })
+        for tab in tabs where !tab.isAsleep && !visible.contains(tab.id) && tab.lastActive < cutoff && !tab.isPlayingVideo {
+            // Never sleep a tab that's making sound (music, a call…).
+            tab.webView.requestMediaPlaybackState { state in
+                MainActor.assumeIsolated { if state != .playing { tab.sleep() } }
+            }
+        }
+    }
 
     // MARK: Configuration
 
@@ -360,7 +393,8 @@ final class Browser {
         guard !restoring else { return }
         let entries: [[String: String]] = tabs.filter { !$0.isPrivate }.compactMap { tab in
             guard let url = tab.currentURL else { return nil }
-            return ["url": url.absoluteString, "space": tab.spaceID?.uuidString ?? "", "pinned": tab.isPinned ? "1" : "0"]
+            return ["url": url.absoluteString, "space": tab.spaceID?.uuidString ?? "", "pinned": tab.isPinned ? "1" : "0",
+                    "title": tab.title, "icon": tab.faviconURL?.absoluteString ?? ""]
         }
         UserDefaults.standard.set(entries, forKey: "session.v2")
         UserDefaults.standard.set(spaceTabs.firstIndex { $0.id == selectedID } ?? 0, forKey: "sessionSelected")
@@ -383,7 +417,9 @@ final class Browser {
             guard pinned || reopenAll else { continue }
             let space = entry["space"].flatMap(UUID.init(uuidString:)).flatMap { SpaceStore.shared.space($0)?.id } ?? home
             currentSpaceID = space
-            newTab(url: url, select: false, pinned: pinned)
+            // Restored tabs start asleep; only the one you're looking at loads, so launch is instant.
+            let tab = newTab(select: false, pinned: pinned)
+            tab.prepareAsleep(url: url, title: entry["title"] ?? "", icon: entry["icon"].flatMap(URL.init(string:)))
         }
         currentSpaceID = home
         restoring = false
@@ -392,5 +428,6 @@ final class Browser {
         } else {
             select(index: d.integer(forKey: "sessionSelected"))
         }
+        saveSession()
     }
 }

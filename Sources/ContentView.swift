@@ -699,6 +699,9 @@ struct Favicon: View {
         }
         .frame(width: 16, height: 16)
         .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+        .opacity(tab.isAsleep ? 0.45 : 1)
+        .saturation(tab.isAsleep ? 0.2 : 1)
+        .help(tab.isAsleep ? "Sleeping to save memory: wakes when you open it" : "")
     }
 
     private var letter: some View {

@@ -1,0 +1,40 @@
+{
+  "fill": {
+    "automatic-gradient": "extended-gray:0.12000,1.00000"
+  },
+  "groups": [
+    {
+      "layers": [
+        {
+          "image-name": "ring-front.svg",
+          "name": "ring-front",
+          "glass": true
+        },
+        {
+          "image-name": "planet.svg",
+          "name": "planet",
+          "glass": true
+        },
+        {
+          "image-name": "ring-back.svg",
+          "name": "ring-back",
+          "glass": true,
+          "opacity": 0.75
+        }
+      ],
+      "shadow": {
+        "kind": "neutral",
+        "opacity": 0.5
+      },
+      "translucency": {
+        "enabled": true,
+        "value": 0.4
+      }
+    }
+  ],
+  "supported-platforms": {
+    "squares": [
+      "macOS"
+    ]
+  }
+}

@@ -2,12 +2,18 @@ import AppKit
 import Observation
 import WebKit
 
-/// One browser tab. Owns its WKWebView for its whole life so switching tabs is instant.
+/// One browser tab. Keeps its WKWebView alive so switching is instant, until it's been idle for a
+/// while: then it sleeps (the page is unloaded to free memory) and wakes, history and all, when opened.
 @MainActor
 @Observable
 final class Tab: NSObject, Identifiable {
     let id = UUID()
-    let webView: WKWebView
+    private(set) var webView: WKWebView
+    /// Unloaded to save memory; wakes when selected.
+    private(set) var isAsleep = false
+    @ObservationIgnored var lastActive = Date()
+    @ObservationIgnored private let configuration: WKWebViewConfiguration
+    @ObservationIgnored private var savedState: Any?
     /// Private tabs keep nothing: no history, no saved session, no password offers, throwaway cookies.
     let isPrivate: Bool
 
@@ -61,9 +67,14 @@ final class Tab: NSObject, Identifiable {
     init(browser: Browser, configuration: WKWebViewConfiguration? = nil, isPrivate: Bool = false) {
         self.browser = browser
         self.isPrivate = isPrivate
-        webView = OrbitWebView(frame: .zero, configuration: configuration ?? browser.makeConfiguration(isPrivate: isPrivate))
+        self.configuration = configuration ?? browser.makeConfiguration(isPrivate: isPrivate)
+        webView = OrbitWebView(frame: .zero, configuration: self.configuration)
         super.init()
+        attach()
+    }
 
+    /// Hooks the current web view up to this tab (delegates and property observers).
+    private func attach() {
         webView.navigationDelegate = self
         webView.uiDelegate = self
         webView.allowsBackForwardNavigationGestures = true
@@ -99,7 +110,53 @@ final class Tab: NSObject, Identifiable {
     func load(_ url: URL) {
         requestedURL = url
         loadError = nil
+        if isAsleep { savedState = nil; wake() }
         webView.load(URLRequest(url: url))
+    }
+
+    // MARK: Sleeping
+
+    /// A tab restored at launch: shows its title and address but loads nothing until opened.
+    func prepareAsleep(url: URL, title: String, icon: URL? = nil) {
+        requestedURL = url
+        self.title = title
+        faviconURL = icon
+        isAsleep = true
+        observers.removeAll()
+    }
+
+    /// Unloads the page to free memory. Back/forward history is kept for when it wakes.
+    func sleep() {
+        guard !isAsleep, currentURL != nil else { return }
+        savedState = webView.interactionState
+        let keepTitle = title, keepURL = url, keepIcon = faviconURL
+        teardown()
+        webView = OrbitWebView(frame: .zero, configuration: configuration)
+        isAsleep = true
+        title = keepTitle
+        url = keepURL
+        faviconURL = keepIcon
+        isLoading = false
+        isPlayingVideo = false
+    }
+
+    /// Brings a sleeping tab back exactly where it was.
+    func wake() {
+        guard isAsleep else { return }
+        isAsleep = false
+        attach()
+        if let savedState {
+            webView.interactionState = savedState
+            self.savedState = nil
+        } else if let target = requestedURL, webView.url == nil {
+            webView.load(URLRequest(url: target))
+        }
+    }
+
+    /// Called when the tab is shown.
+    func activate() {
+        lastActive = Date()
+        wake()
     }
 
     func retry() {
