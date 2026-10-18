@@ -7,6 +7,7 @@ struct ContentView: View {
     let browser = Browser.shared
     @AppStorage(Pref.tabLayout) private var tabLayout = TabLayout.top.rawValue
     @AppStorage(Pref.accent) private var accentRaw = Accent.blue.rawValue
+    @AppStorage(Pref.showPinsBar) private var showPinsBar = true
     @FocusState private var focus: Field?
     // Plain State storage: the @State macro plugin only ships with full Xcode.
     private let addressState = State(initialValue: "")
@@ -116,7 +117,14 @@ struct ContentView: View {
                 aiButton
             }
             .padding(.horizontal, 10)
-            .padding(.vertical, 8)
+            .padding(.top, 8)
+            .padding(.bottom, showPinsBar ? 4 : 8)
+
+            if showPinsBar {
+                PinsBar()
+                    .padding(.horizontal, 10)
+                    .padding(.bottom, 6)
+            }
 
             card
                 .padding([.horizontal, .bottom], 10)
@@ -135,6 +143,11 @@ struct ContentView: View {
                 .padding(.top, 2)
 
                 addressBar
+
+                if showPinsBar {
+                    PinsBar(vertical: true)
+                        .padding(.top, 2)
+                }
 
                 if browser.pinnedCount > 0 {
                     LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 4), spacing: 6) {

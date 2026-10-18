@@ -50,6 +50,8 @@ struct BrowserCommands: Commands {
                 .keyboardShortcut("t")
             Button("Open Location…") { browser.focusAddressRequest += 1 }
                 .keyboardShortcut("l")
+            Button("Pin / Unpin This Page") { Pins.toggleCurrentPage() }
+                .keyboardShortcut("d")
         }
         CommandGroup(replacing: .saveItem) {
             Button("Close Tab") { browser.closeSelected() }

@@ -157,6 +157,8 @@ struct CommandPalette: View {
         var list: [PaletteItem] = [
             PaletteItem(icon: "plus.square", title: "New Tab", subtitle: "⌘T") { b.newTab() },
             PaletteItem(icon: "magnifyingglass", title: "Find in Page", subtitle: "⌘F") { b.showFind = true },
+            PaletteItem(icon: "pin.circle", title: Pins.isPinned(tab?.url) ? "Unpin This Page" : "Pin This Page",
+                        subtitle: "⌘D") { Pins.toggleCurrentPage() },
             PaletteItem(icon: "sparkles", title: "Orbit AI", subtitle: "⌘J") { Assistant.shared.isOpen = true },
             PaletteItem(icon: "text.badge.star", title: "Summarize Page with AI", subtitle: "⌘⇧S") {
                 Assistant.shared.summarize(tab)

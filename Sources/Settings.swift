@@ -10,6 +10,8 @@ enum Pref {
     static let offerPasswords = "offerPasswords"
     static let ambient = "ambient"
     static let aiCloud = "aiCloud"
+    static let pins = "pins"
+    static let showPinsBar = "showPinsBar"
 
     // Start page
     static let wallpaper = "wallpaper"
@@ -36,6 +38,7 @@ enum Pref {
             offerPasswords: true,
             ambient: AmbientLevel.vivid.rawValue,
             aiCloud: true,
+            showPinsBar: true,
             wallpaper: WallpaperStyle.aurora.rawValue,
             wallpaperReactive: true,
             wallpaperIntensity: 0.8,
@@ -159,6 +162,7 @@ struct LookSettings: View {
     @AppStorage(Pref.tabLayout) private var tabLayout = TabLayout.top.rawValue
     @AppStorage(Pref.accent) private var accent = Accent.blue.rawValue
     @AppStorage(Pref.ambient) private var ambient = AmbientLevel.vivid.rawValue
+    @AppStorage(Pref.showPinsBar) private var showPinsBar = true
 
     var body: some View {
         Form {
@@ -166,6 +170,8 @@ struct LookSettings: View {
                 ForEach(TabLayout.allCases) { Text($0.label).tag($0.rawValue) }
             }
             .pickerStyle(.segmented)
+
+            Toggle("Show pins bar", isOn: $showPinsBar)
 
             Picker("Glow effects", selection: $ambient) {
                 ForEach(AmbientLevel.allCases) { Text($0.label).tag($0.rawValue) }
