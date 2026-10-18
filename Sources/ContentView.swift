@@ -108,8 +108,8 @@ struct ContentView: View {
                 .help("New Tab (⌘T)")
                 Spacer(minLength: 24)
             }
-            .frame(height: 28)
-            .padding(.top, 3)
+            .frame(height: 32)
+            .padding(.top, 1)
             .padding(.trailing, 10)
 
             HStack(spacing: 6) {
@@ -264,9 +264,7 @@ struct ContentView: View {
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 11, style: .continuous)
-                .strokeBorder(focus == .address ? accent.color
-                              : Color(hue: pageHue, saturation: 0.7, brightness: 1).opacity(0.3 * AmbientLevel.current.strength),
-                              lineWidth: focus == .address ? 2 : 1)
+                .strokeBorder(focus == .address ? accent.color : .clear, lineWidth: 2)
                 .animation(.easeInOut(duration: 1.3), value: pageHue)
         )
         .modifier(PageGlowPulse(trigger: browser.selected?.glowPulse ?? 0, hue: pageHue, radius: 11))
@@ -312,10 +310,6 @@ struct ContentView: View {
             .animation(.spring(duration: 0.3), value: browser.showFind)
             .animation(.spring(duration: 0.35), value: Assistant.shared.isOpen)
             .shadow(color: .black.opacity(0.14), radius: 10, y: 3)
-            .animation(.easeInOut(duration: 1.3)) {
-                $0.shadow(color: Color(hue: pageHue, saturation: 0.75, brightness: 1)
-                              .opacity(0.28 * AmbientLevel.current.strength), radius: 22)
-            }
             .modifier(PageGlowPulse(trigger: browser.selected?.glowPulse ?? 0, hue: pageHue, radius: 12))
     }
 
@@ -368,7 +362,7 @@ struct TopTab: View {
         }
         .padding(.leading, 9)
         .padding(.trailing, 4)
-        .frame(height: 28)
+        .frame(height: 32)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(!selected && hovering ? Color.primary.opacity(0.06) : .clear)
@@ -392,7 +386,7 @@ struct PinnedTab: View {
 
     var body: some View {
         Favicon(tab: tab)
-            .frame(width: wide ? nil : 34, height: wide ? 34 : 28)
+            .frame(width: wide ? nil : 34, height: wide ? 38 : 32)
             .frame(maxWidth: wide ? .infinity : nil)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
@@ -470,7 +464,7 @@ struct TabRow: View {
         }
         .padding(.leading, 10)
         .padding(.trailing, 6)
-        .frame(height: 34)
+        .frame(height: 38)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(!selected && hovering ? Color.primary.opacity(0.06) : .clear)

@@ -107,7 +107,8 @@ struct LoadingShimmer: View {
     }
 }
 
-/// Slow colored light behind the browser chrome, following the page (or what you're typing).
+/// Colored light behind the browser chrome in the page's color. Dark when nothing's happening;
+/// it blooms when a page opens, on music beats and when you point at a link, then fades away.
 struct AmbientBackdrop: View {
     let hue: Double
     @AppStorage(Pref.ambient) private var ambient = AmbientLevel.vivid.rawValue
@@ -129,7 +130,7 @@ struct AmbientBackdrop: View {
                         let center = CGPoint(x: size.width * b.x, y: size.height * b.y)
                         let r = side * b.r * frame.look.scale
                         let c = frame.look.color(b.dh, 0.8, 1)
-                            .opacity(0.22 * level * min(1.4, frame.look.intensity) * (1 + frame.energy * 0.6))
+                            .opacity(0.32 * level * min(1, frame.energy * 1.4))
                         g.fill(Path(ellipseIn: CGRect(x: center.x - r, y: center.y - r, width: r * 2, height: r * 2)),
                                with: .radialGradient(Gradient(colors: [c, c.opacity(0)]), center: center,
                                                      startRadius: 0, endRadius: r))

@@ -123,6 +123,7 @@ final class WallpaperMood {
     func hover(host: String?) {
         guard let host else { hoverHue = nil; return }
         hoverHue = Self.siteHue(host)
+        pulse(0.5)
     }
 
     /// A burst of energy, e.g. when a page finishes opening.
@@ -273,6 +274,23 @@ private struct Sonic: View {
                     }
                 }
 
+                // Sand: grains of light that settle onto the pattern's quiet lines, like cymatics.
+                Canvas { ctx, size in
+                    let mid = CGPoint(x: size.width / 2, y: size.height / 2)
+                    let field = ParticleField.shared
+                    field.step(music: music, levels: levels)
+                    ctx.blendMode = .plusLighter
+                    let inner = radius * 0.86
+                    for p in field.particles {
+                        let speed = min(1, p.speed * 40)
+                        let dot = 1.1 + speed * 1.6
+                        let x = mid.x + p.x * inner, y = mid.y + p.y * inner
+                        let col = c(speed * 0.08 - 0.02, 0.55 - speed * 0.3, (0.55 + speed * 0.45) * strength)
+                        ctx.fill(Path(ellipseIn: CGRect(x: x - dot / 2, y: y - dot / 2, width: dot, height: dot)),
+                                 with: .color(col.opacity(0.55 + speed * 0.45)))
+                    }
+                }
+
                 GlassEffectContainer(spacing: radius * 0.14) {
                     ZStack {
                         GlassRing(levels: levels, phase: phase, radius: radius)
@@ -291,6 +309,23 @@ private struct Sonic: View {
                     }
                     .frame(width: geo.size.width, height: geo.size.height)
                 }
+
+                // Fresnel rim: a thin bright line where light grazes the glass edges,
+                // with a faint red/blue split (dispersion) like real glass.
+                ZStack {
+                    GlassRing(levels: levels, phase: phase, radius: radius)
+                        .stroke(Color(red: 1, green: 0.25, blue: 0.3).opacity(0.28), lineWidth: 1)
+                        .offset(x: -1.2, y: -0.6)
+                    GlassRing(levels: levels, phase: phase, radius: radius)
+                        .stroke(Color(red: 0.2, green: 0.6, blue: 1).opacity(0.28), lineWidth: 1)
+                        .offset(x: 1.2, y: 0.6)
+                    GlassRing(levels: levels, phase: phase, radius: radius)
+                        .stroke(LinearGradient(colors: [.white.opacity(0.85), .white.opacity(0.15), .white.opacity(0.5)],
+                                               startPoint: .topLeading, endPoint: .bottomTrailing),
+                                lineWidth: 0.9)
+                }
+                .blendMode(.plusLighter)
+                .allowsHitTesting(false)
 
                 // A soft halo so the ring glows into the dark.
                 GlassRing(levels: levels, phase: phase, radius: radius)
@@ -320,6 +355,90 @@ private struct Sonic: View {
             }
         }
         return levels
+    }
+}
+
+/// Cymatics: particles slide toward the still lines of a vibrating plate, F(r, θ) = cos(nθ)·sin(mπr).
+/// Pitch picks the pattern (m rings, n spokes), loudness shakes the grains, and beats throw them outward.
+@MainActor
+final class ParticleField {
+    static let shared = ParticleField()
+
+    struct Particle { var x: Double; var y: Double; var vx = 0.0; var vy = 0.0; var speed = 0.0 }
+
+    private(set) var particles: [Particle]
+    private var m = 2.0, n = 4.0
+    private var lastBeats = 0
+    private var lastStep: Date?
+
+    private init() {
+        var rng = SystemRandomNumberGenerator()
+        particles = (0..<1600).map { _ in
+            let r = sqrt(Double.random(in: 0...1, using: &rng)) * 0.95
+            let a = Double.random(in: 0...(2 * .pi), using: &rng)
+            return Particle(x: r * cos(a), y: r * sin(a))
+        }
+    }
+
+    func step(music: MusicListener.Snapshot, levels: [Double]) {
+        let now = Date()
+        let dt = min(1.0 / 20, now.timeIntervalSince(lastStep ?? now))
+        lastStep = now
+        guard dt > 0 else { return }
+
+        // Where the sound sits picks the pattern: bassy = few rings, bright = many spokes.
+        let total = max(0.0001, levels.reduce(0, +))
+        let centroid = levels.enumerated().reduce(0.0) { $0 + Double($1.offset) * $1.element } / total / Double(max(1, levels.count - 1))
+        let treble = levels.suffix(levels.count / 3).reduce(0, +) / total
+        let targetM = 1.5 + centroid * 4
+        let targetN = 2 + (treble * 12).rounded()
+        m += (targetM - m) * min(1, dt * 0.8)
+        n += (targetN - n) * min(1, dt * 0.8)
+
+        let loud = Double(music.loudness)
+        let kick = music.beats != lastBeats
+        lastBeats = music.beats
+        let jitter = 0.002 + loud * 0.03
+        let pull = 2.4
+
+        for i in particles.indices {
+            var p = particles[i]
+            let r = max(0.0001, (p.x * p.x + p.y * p.y).squareRoot())
+            let a = atan2(p.y, p.x)
+
+            // Slide down the gradient of F² toward the still (nodal) lines.
+            let f = cos(n * a) * sin(m * .pi * r)
+            let dfdr = cos(n * a) * m * .pi * cos(m * .pi * r)
+            let dfda = -n * sin(n * a) * sin(m * .pi * r) / r
+            let gr = 2 * f * dfdr, ga = 2 * f * dfda
+            let gx = gr * cos(a) - ga * sin(a)
+            let gy = gr * sin(a) + ga * cos(a)
+            p.vx += -gx * pull * dt + Double.random(in: -jitter...jitter)
+            p.vy += -gy * pull * dt + Double.random(in: -jitter...jitter)
+
+            // A beat throws the sand outward.
+            if kick {
+                let push = 0.012 + Double(music.bass) * 0.03
+                p.vx += cos(a) * push * Double.random(in: 0.4...1)
+                p.vy += sin(a) * push * Double.random(in: 0.4...1)
+            }
+
+            p.vx *= 0.86
+            p.vy *= 0.86
+            p.x += p.vx
+            p.y += p.vy
+
+            // Stay inside the ring.
+            let nr = (p.x * p.x + p.y * p.y).squareRoot()
+            if nr > 0.97 {
+                p.x *= 0.97 / nr
+                p.y *= 0.97 / nr
+                p.vx *= -0.3
+                p.vy *= -0.3
+            }
+            p.speed = (p.vx * p.vx + p.vy * p.vy).squareRoot()
+            particles[i] = p
+        }
     }
 }
 
