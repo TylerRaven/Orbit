@@ -113,8 +113,10 @@ struct ContentView: View {
         VStack(spacing: 0) {
             HStack(spacing: 4) {
                 Color.clear.frame(width: 74) // traffic lights
-                SpaceSwitcher()
-                    .padding(.trailing, 4)
+                if SpaceStore.shared.spaces.count > 1 {
+                    SpaceSwitcher()
+                        .padding(.trailing, 4)
+                }
                 ForEach(browser.spaceTabs.filter(\.isPinned)) { tab in
                     PinnedTab(tab: tab, selected: tab.id == browser.selectedID)
                 }
@@ -211,7 +213,9 @@ struct ContentView: View {
                 .buttonStyle(HoverStyle())
                 .foregroundStyle(.secondary)
 
-                SpaceSwitcher(compact: false)
+                if SpaceStore.shared.spaces.count > 1 {
+                    SpaceSwitcher(compact: false)
+                }
             }
             .padding(.horizontal, 10)
             .padding(.bottom, 10)
