@@ -29,6 +29,8 @@
         <key>NSAllowsArbitraryLoadsInWebContent</key>
         <true/>
     </dict>
+    <key>NSAudioCaptureUsageDescription</key>
+    <string>Orbit's Sonic wallpaper listens to what your Mac is playing so it can move with the music. Nothing is recorded or sent anywhere.</string>
     <key>NSCameraUsageDescription</key>
     <string>Websites you visit may ask to use your camera.</string>
     <key>NSMicrophoneUsageDescription</key>

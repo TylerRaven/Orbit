@@ -475,6 +475,7 @@ struct StartPageSettings: View {
     @AppStorage(Pref.showNotes) private var showNotes = true
     @AppStorage(Pref.weatherCity) private var city = "London"
     @AppStorage(Pref.fahrenheit) private var fahrenheit = false
+    @AppStorage(Pref.musicGlow) private var musicGlow = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -503,6 +504,13 @@ struct StartPageSettings: View {
                 }
             }
             Toggle("Glows with the link you point at", isOn: $reactive)
+            Toggle("Glow to music on every wallpaper", isOn: $musicGlow)
+            if wallpaper == WallpaperStyle.sonic.rawValue || musicGlow {
+                Text("Reacts to anything your Mac plays. macOS will ask once to allow system audio; you can change it in System Settings › Privacy & Security › Screen & System Audio Recording.")
+                    .font(.system(size: 10))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack {
                 Text("Intensity")
                 Slider(value: $intensity, in: 0.3...1.4)

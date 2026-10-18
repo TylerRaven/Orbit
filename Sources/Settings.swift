@@ -12,6 +12,7 @@ enum Pref {
     static let aiCloud = "aiCloud"
     static let pins = "pins"
     static let showPinsBar = "showPinsBar"
+    static let musicGlow = "musicGlow"
 
     // Start page
     static let wallpaper = "wallpaper"
@@ -88,12 +89,13 @@ enum SearchEngine: String, CaseIterable, Identifiable {
 }
 
 enum Accent: String, CaseIterable, Identifiable {
-    case blue, purple, pink, orange, green, graphite
+    case blue, teal, purple, pink, orange, green, graphite
     var id: String { rawValue }
 
     var colors: (Color, Color) {
         switch self {
         case .blue: (Color(red: 0.25, green: 0.47, blue: 1.0), Color(red: 0.36, green: 0.72, blue: 1.0))
+        case .teal: (Color(red: 0.16, green: 0.62, blue: 0.72), Color(red: 0.36, green: 0.86, blue: 0.92))
         case .purple: (Color(red: 0.49, green: 0.33, blue: 1.0), Color(red: 0.76, green: 0.45, blue: 1.0))
         case .pink: (Color(red: 1.0, green: 0.27, blue: 0.55), Color(red: 1.0, green: 0.52, blue: 0.68))
         case .orange: (Color(red: 1.0, green: 0.50, blue: 0.10), Color(red: 1.0, green: 0.72, blue: 0.30))

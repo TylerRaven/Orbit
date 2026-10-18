@@ -2,11 +2,12 @@ import AppKit
 import SwiftUI
 
 enum WallpaperStyle: String, CaseIterable, Identifiable {
-    case aurora, lava, warp, solid, image
+    case sonic, aurora, lava, warp, solid, image
     var id: String { rawValue }
 
     var label: String {
         switch self {
+        case .sonic: "Sonic"
         case .aurora: "Aurora"
         case .lava: "Lava"
         case .warp: "Warp"
@@ -17,6 +18,7 @@ enum WallpaperStyle: String, CaseIterable, Identifiable {
 
     var symbol: String {
         switch self {
+        case .sonic: "waveform.circle"
         case .aurora: "wind"
         case .lava: "drop.fill"
         case .warp: "sparkles"
@@ -25,7 +27,7 @@ enum WallpaperStyle: String, CaseIterable, Identifiable {
         }
     }
 
-    var isAnimated: Bool { self == .aurora || self == .lava || self == .warp }
+    var isAnimated: Bool { self == .sonic || self == .aurora || self == .lava || self == .warp }
 }
 
 /// Shared "mood" the wallpapers and glows render from. Its color follows the site you're on
@@ -67,6 +69,7 @@ final class WallpaperMood {
 
     private(set) var phase = 0.0
     private(set) var energy = 0.0
+    private var lastBeats = 0
     private var lastFrame: Date?
     private var lastResult: (look: Look, phase: Double, energy: Double)?
 
@@ -86,6 +89,12 @@ final class WallpaperMood {
         }
 
         energy *= exp(-dt * 1.6)
+        let music = MusicListener.shared.snapshot()
+        if music.beats != lastBeats {
+            lastBeats = music.beats
+            pulse(0.4)
+        }
+        energy = max(energy, Double(music.bass) * 0.5)
         phase += dt * (1 + energy * 2.2)
 
         var look = currentLook(now)
@@ -176,6 +185,8 @@ struct LiveWallpaper: View {
                 let frame = WallpaperMood.shared.step(now: ctx.date, baseHue: accent.hue, reactive: reactive)
                 Group {
                     switch style {
+                    case .sonic: Sonic(look: frame.look, phase: frame.phase, strength: intensity,
+                                       music: MusicListener.shared.snapshot())
                     case .aurora: Aurora(look: frame.look, phase: frame.phase, strength: intensity)
                     case .lava: Lava(look: frame.look, phase: frame.phase, strength: intensity)
                     default: Warp(look: frame.look, phase: frame.phase, energy: frame.energy, strength: intensity)
@@ -223,6 +234,62 @@ private struct Aurora: View {
             c(0, 0.9, v * 0.2), c(0.1, 0.9, v * 0.35), c(-0.05, 0.9, v * 0.3), c(0.15, 0.9, v * 0.2),
         ]
         return MeshGradient(width: 4, height: 4, points: points, colors: colors, smoothsColors: true)
+    }
+}
+
+/// A fragmented ring of light that breathes on its own and pulses with whatever is playing.
+private struct Sonic: View {
+    let look: WallpaperMood.Look
+    let phase: Double
+    let strength: Double
+    let music: MusicListener.Snapshot
+
+    var body: some View {
+        Canvas { ctx, size in
+            ctx.fill(Path(CGRect(origin: .zero, size: size)), with: .color(look.color(0, 0.7, 0.05)))
+            let c = CGPoint(x: size.width / 2, y: size.height / 2)
+            let bass = Double(music.bass)
+            let base = min(size.width, size.height) * 0.27 * look.scale * (1 + bass * 0.16)
+
+            // Soft light filling the middle of the ring.
+            ctx.blendMode = .plusLighter
+            let glowR = base * 1.9
+            ctx.fill(Path(ellipseIn: CGRect(x: c.x - glowR, y: c.y - glowR, width: glowR * 2, height: glowR * 2)),
+                     with: .radialGradient(Gradient(colors: [look.color(0, 0.8, 0.22 * strength * (0.6 + bass)), .clear]),
+                                           center: c, startRadius: base * 0.2, endRadius: glowR))
+
+            let levels = music.levels
+            let bands = levels.count
+            let points = 220
+            for strand in 0..<6 {
+                let s = Double(strand)
+                var prev: CGPoint?
+                for i in 0...points {
+                    let theta = Double(i) / Double(points) * 2 * .pi
+                    // Mirror the spectrum so the ring is symmetric: bass at the top and bottom.
+                    let u = theta < .pi ? theta / .pi : (2 * .pi - theta) / .pi
+                    let level = Double(levels[min(bands - 1, Int(u * Double(bands - 1)))])
+                    let wobble = 0.045 * sin(theta * 3 + phase * 0.7 + s * 1.1)
+                        + 0.03 * sin(theta * 5 - phase * 1.1 + s * 2.3)
+                        + 0.015 * sin(theta * 11 + phase * 1.7 + s)
+                    let r = base * (1 + wobble + level * (0.22 + 0.05 * s) + s * 0.012)
+                    let p = CGPoint(x: c.x + cos(theta - .pi / 2) * r, y: c.y + sin(theta - .pi / 2) * r)
+                    defer { prev = p }
+                    guard let prev else { continue }
+
+                    // Break each strand into drifting fragments of light.
+                    let gate = sin(theta * 2 + phase * 0.45 + s * 1.7) * 0.6 + sin(theta * 7 - phase * 0.8 + s) * 0.4
+                    let alpha = max(0, gate) * (0.35 + level * 0.9) * strength
+                    guard alpha > 0.02 else { continue }
+                    var seg = Path()
+                    seg.move(to: prev)
+                    seg.addLine(to: p)
+                    let tint = look.color(0.02 * s - 0.04, 0.55 + level * 0.3, 1)
+                    ctx.stroke(seg, with: .color(tint.opacity(alpha * 0.14)), lineWidth: 9 + level * 10)
+                    ctx.stroke(seg, with: .color(tint.opacity(min(1, alpha))), lineWidth: 1.1 + level * 1.6)
+                }
+            }
+        }
     }
 }
 
@@ -327,6 +394,7 @@ extension Accent {
     var hue: Double {
         switch self {
         case .blue: 0.61
+        case .teal: 0.53
         case .purple: 0.73
         case .pink: 0.93
         case .orange: 0.07

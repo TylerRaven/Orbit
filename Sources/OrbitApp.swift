@@ -24,6 +24,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         MainActor.assumeIsolated {
             Browser.shared.loadBlocker()
+            MusicListener.shared.sync()
+            // Start/stop listening as soon as the wallpaper or music setting changes.
+            NotificationCenter.default.addObserver(forName: UserDefaults.didChangeNotification, object: nil,
+                                                   queue: .main) { _ in MusicListener.shared.sync() }
             if Browser.shared.tabs.isEmpty { Browser.shared.restoreSession() }
         }
     }
@@ -38,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         MainActor.assumeIsolated { Browser.shared.saveSession() }
+        MusicListener.shared.stop()
     }
 }
 
