@@ -40,13 +40,16 @@ fi
 echo "▸ Signing"
 codesign --force --deep --sign - "$APP" >/dev/null
 
-echo "▸ Installing to ~/Applications"
-mkdir -p ~/Applications
-pkill -x Orbit 2>/dev/null && sleep 0.5 || true
-rm -rf ~/Applications/Orbit.app
-cp -R "$APP" ~/Applications/Orbit.app
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f ~/Applications/Orbit.app
-touch ~/Applications/Orbit.app # nudge Finder and the Dock to pick up a new icon
+# NO_INSTALL=1 (used by scripts/release.sh) leaves the installed copy alone so it updates itself.
+if [[ -z "${NO_INSTALL:-}" ]]; then
+  echo "▸ Installing to ~/Applications"
+  mkdir -p ~/Applications
+  pkill -x Orbit 2>/dev/null && sleep 0.5 || true
+  rm -rf ~/Applications/Orbit.app
+  cp -R "$APP" ~/Applications/Orbit.app
+  /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f ~/Applications/Orbit.app
+  touch ~/Applications/Orbit.app # nudge Finder and the Dock to pick up a new icon
+fi
 
 if [[ "${1:-}" == "--dmg" ]]; then
   echo "▸ Making Orbit.dmg"
@@ -60,6 +63,6 @@ if [[ "${1:-}" == "--dmg" ]]; then
   echo "✓ build/Orbit.dmg ($(du -h build/Orbit.dmg | cut -f1))"
 fi
 
-echo "✓ Orbit.app installed"
+[[ -z "${NO_INSTALL:-}" ]] && echo "✓ Orbit.app installed"
 [[ "${1:-}" == "--open" ]] && open ~/Applications/Orbit.app
 exit 0

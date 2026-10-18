@@ -21,7 +21,7 @@ BUILD=$(( $(plutil -extract CFBundleVersion raw "$PLIST") + 1 ))
 # Edit the values in place so the plist keeps its formatting.
 perl -0pi -e "s|(<key>CFBundleShortVersionString</key>\s*<string>)[^<]*|\${1}$VERSION|; s|(<key>CFBundleVersion</key>\s*<string>)[^<]*|\${1}$BUILD|" "$PLIST"
 
-./build.sh --dmg
+NO_INSTALL=1 ./build.sh --dmg
 git commit -q -m "Orbit $VERSION" "$PLIST"
 git tag "v$VERSION"
 echo "✓ Orbit $VERSION committed and tagged v$VERSION"
