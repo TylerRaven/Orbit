@@ -149,8 +149,9 @@ struct ContentView: View {
                 .help("New Tab (⌘T)")
                 Spacer(minLength: 24)
             }
-            .frame(height: 32)
-            .padding(.top, 1)
+            .frame(height: 28)
+            // Room above the tabs so the selected tab's glow isn't cut off by the window edge.
+            .padding(.top, 7)
             .padding(.trailing, 10)
 
             HStack(spacing: 6) {
@@ -160,7 +161,7 @@ struct ContentView: View {
                 aiButton
             }
             .padding(.horizontal, 10)
-            .padding(.top, 8)
+            .padding(.top, 6)
             .padding(.bottom, showPinsBar ? 4 : 8)
 
             if showPinsBar {
@@ -590,7 +591,7 @@ struct TopTab: View {
         }
         .padding(.leading, 9)
         .padding(.trailing, 4)
-        .frame(height: 32)
+        .frame(height: 28)
         .background(
             RoundedRectangle(cornerRadius: 9, style: .continuous)
                 .fill(!selected && hovering ? Color.primary.opacity(0.06) : .clear)
@@ -614,7 +615,7 @@ struct PinnedTab: View {
 
     var body: some View {
         Favicon(tab: tab)
-            .frame(width: wide ? nil : 34, height: wide ? 38 : 32)
+            .frame(width: wide ? nil : 32, height: wide ? 38 : 28)
             .frame(maxWidth: wide ? .infinity : nil)
             .background(
                 RoundedRectangle(cornerRadius: 9, style: .continuous)
