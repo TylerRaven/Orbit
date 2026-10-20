@@ -121,7 +121,7 @@ struct CommandPalette: View {
                                      action: { Browser.shared.go(q) }))
         }
 
-        if !q.isEmpty {
+        if !q.isEmpty, Assistant.shared.isAvailable {
             let question = q.hasPrefix("?") ? String(q.dropFirst()) : q
             let page = browser.selected?.isBlank == false ? browser.selected : nil
             let ask = PaletteItem(icon: "sparkles", title: "Ask Orbit AI: “\(question)”",
@@ -158,7 +158,7 @@ struct CommandPalette: View {
                 if tab.isTranslated { Translator.showOriginal(tab) } else { Browser.shared.translating = tab }
             })
         }
-        if !q.isEmpty, browser.spaceTabs.filter({ !$0.isBlank }).count > 1 {
+        if !q.isEmpty, Assistant.shared.isAvailable, browser.spaceTabs.filter({ !$0.isBlank }).count > 1 {
             let question = q.hasPrefix("??") ? String(q.dropFirst(2)) : q
             items.insert(PaletteItem(icon: "square.on.square", title: "Ask AI about all tabs: “\(question)”",
                                      subtitle: "\(browser.spaceTabs.filter { !$0.isBlank }.count) tabs") {
@@ -205,11 +205,9 @@ struct CommandPalette: View {
             PaletteItem(icon: "magnifyingglass", title: "Find in Page", subtitle: "⌘F") { b.showFind = true },
             PaletteItem(icon: "pin.circle", title: Pins.isPinned(tab?.url) ? "Unpin This Page" : "Pin This Page",
                         subtitle: "⌘D") { Pins.toggleCurrentPage() },
-            PaletteItem(icon: "sparkles", title: "Orbit AI", subtitle: "⌘J") { Assistant.shared.isOpen = true },
-            PaletteItem(icon: "text.badge.star", title: "Summarize Page with AI", subtitle: "⌘⇧S") {
-                Assistant.shared.summarize(tab)
-            },
-            PaletteItem(icon: "arrow.clockwise", title: "Reload Page", subtitle: "⌘R") { tab?.webView.reload() },
+            PaletteItem(icon: "sparkles", title: Assistant.shared.isAvailable ? "Orbit AI" : "Set Up Orbit AI",
+                        subtitle: "⌘J") { Assistant.shared.toggle() },
+                        PaletteItem(icon: "arrow.clockwise", title: "Reload Page", subtitle: "⌘R") { tab?.webView.reload() },
             PaletteItem(icon: "sidebar.left", title: "Switch Tab Layout", subtitle: "Top ↔ Sidebar") {
                 let d = UserDefaults.standard
                 let side = d.string(forKey: Pref.tabLayout) == TabLayout.side.rawValue
@@ -219,6 +217,11 @@ struct CommandPalette: View {
             PaletteItem(icon: "trash", title: "Clear History") { History.shared.clear() },
             PaletteItem(icon: "moon.zzz", title: "Sleep Other Tabs", subtitle: "Free up memory") { b.sleepOtherTabs() },
         ]
+        if Assistant.shared.isAvailable {
+            list.insert(PaletteItem(icon: "text.badge.star", title: "Summarize Page with AI", subtitle: "⌘⇧S") {
+                Assistant.shared.summarize(tab)
+            }, at: min(11, list.count))
+        }
         if let tab {
             list.insert(PaletteItem(icon: tab.isPinned ? "pin.slash" : "pin", title: tab.isPinned ? "Unpin Tab" : "Pin Tab") {
                 b.togglePin(tab)

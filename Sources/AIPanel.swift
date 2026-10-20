@@ -15,7 +15,8 @@ struct AIPanel: View {
             ScrollViewReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
-                        if ai.messages.isEmpty { empty }
+                        if !ai.isAvailable { AISetupCard(accent: accent) }
+                        else if ai.messages.isEmpty { empty }
                         ForEach(ai.messages) { msg in
                             bubble(msg).id(msg.id)
                         }
@@ -32,13 +33,16 @@ struct AIPanel: View {
                     if let id = ai.messages.last?.id { proxy.scrollTo(id, anchor: .bottom) }
                 }
             }
-            input
+            if ai.isAvailable { input }
         }
         .frame(width: 360)
         .frame(maxHeight: .infinity)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .shadow(color: .black.opacity(0.25), radius: 24, y: 8)
-        .onAppear { focused = true }
+        .onAppear {
+            focused = true
+            if !ai.isAvailable { Task { await Ollama.shared.refresh() } }
+        }
     }
 
     private var header: some View {
@@ -52,7 +56,7 @@ struct AIPanel: View {
                 .padding(.horizontal, 7)
                 .padding(.vertical, 2)
                 .background(Capsule().fill(Color.primary.opacity(0.08)))
-                .help(ai.usingCloud ? "Apple Private Cloud Compute" : "Runs entirely on this Mac")
+                .help(ai.engineHelp)
             Spacer()
             NavButton(symbol: "square.and.pencil", help: "New chat", enabled: !ai.messages.isEmpty) { ai.reset() }
             NavButton(symbol: "xmark", help: "Close (⌘J)", enabled: true) { ai.isOpen = false }
@@ -64,7 +68,7 @@ struct AIPanel: View {
 
     private var empty: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(ai.unavailableReason ?? "Ask about this page, or anything at all. It all runs on your Mac.")
+            Text("Ask about this page, or anything at all. It all runs on your Mac.")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
             if tab?.isBlank == false {
@@ -151,9 +155,94 @@ struct AIPanel: View {
     /// Inline markdown, keeping line breaks so bullet lists stay readable.
     static func markdown(_ text: String) -> AttributedString {
         let opts = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
-        let bulleted = text.replacingOccurrences(of: "\n- ", with: "\n• ").replacingOccurrences(of: "\n* ", with: "\n• ")
+        // Drop "---" divider lines and "#" heading marks, which inline markdown would show as-is.
+        let cleaned = text.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { $0.trimmingCharacters(in: .whitespaces) != "---" }
+            .map { line in line.hasPrefix("#") ? "**" + line.drop(while: { $0 == "#" || $0 == " " }) + "**" : String(line) }
+            .joined(separator: "\n")
+        let bulleted = cleaned.replacingOccurrences(of: "\n- ", with: "\n• ").replacingOccurrences(of: "\n* ", with: "\n• ")
         let fixed = bulleted.hasPrefix("- ") || bulleted.hasPrefix("* ") ? "• " + bulleted.dropFirst(2) : bulleted
         return (try? AttributedString(markdown: fixed, options: opts)) ?? AttributedString(text)
+    }
+}
+
+/// Shown instead of the chat when this Mac has no AI yet: turn on Apple Intelligence if it can,
+/// otherwise install Ollama and download a model sized to this Mac.
+struct AISetupCard: View {
+    let accent: Accent
+    private var ollama: Ollama { .shared }
+    private var ai: Assistant { .shared }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Set up Orbit AI").font(.system(size: 15, weight: .semibold))
+            Text(ai.unavailableReason ?? "Orbit AI needs a model to run on.")
+                .font(.system(size: 12.5)).foregroundStyle(.secondary)
+
+            if ai.appleCouldWork {
+                option(icon: "apple.intelligence", title: "Use Apple Intelligence",
+                       detail: "Built into macOS. Turn it on in System Settings, then come back.") {
+                    Button("Open Settings") {
+                        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.Siri-Settings.extension")!)
+                    }
+                }
+            }
+
+            option(icon: "cpu", title: ai.appleCouldWork ? "Or use a free local model" : "Use a free local model",
+                   detail: ollamaDetail) { ollamaAction }
+
+            Label("Everything runs on your Mac. Pages you ask about are never sent anywhere.", systemImage: "lock")
+                .font(.system(size: 11)).foregroundStyle(.secondary)
+        }
+        .padding(.top, 4)
+    }
+
+    private var ollamaDetail: String {
+        let pick = Ollama.recommended
+        switch ollama.state {
+        case .notInstalled:
+            return "Orbit installs Ollama (free, about 200 MB), then downloads \(pick.label), picked for this Mac's \(Ollama.memoryDescription) of memory (\(pick.size))."
+        case .noModel:
+            return "Ollama is ready. Download \(pick.label), picked for this Mac's \(Ollama.memoryDescription) of memory (\(pick.size))."
+        case .notRunning: return "Ollama is installed but not running."
+        case .failed(let message): return message
+        default: return "Ollama runs AI models right on this Mac."
+        }
+    }
+
+    @ViewBuilder private var ollamaAction: some View {
+        switch ollama.state {
+        case .checking, .starting:
+            ProgressView().controlSize(.small)
+        case .notInstalled:
+            Button("Install Ollama") { Task { await ollama.install() } }
+        case .installing(let step):
+            HStack(spacing: 6) { ProgressView().controlSize(.small); Text(step).font(.system(size: 11)) }
+        case .notRunning:
+            Button("Start Ollama") { Task { await ollama.start() } }
+        case .noModel:
+            Button("Download \(Ollama.recommended.size)") { Task { await ollama.downloadModel(Ollama.recommended) } }
+        case .downloading(let f):
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: f).tint(accent.color)
+                Text("Downloading… \(Int(f * 100))%").font(.system(size: 11)).foregroundStyle(.secondary)
+            }
+        case .ready:
+            Label("Ready", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
+        case .failed:
+            Button("Try Again") { Task { await ollama.refresh() } }
+        }
+    }
+
+    private func option<A: View>(icon: String, title: String, detail: String, @ViewBuilder action: () -> A) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(title, systemImage: icon).font(.system(size: 13, weight: .semibold))
+            Text(detail).font(.system(size: 12)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            action().controlSize(.small).buttonStyle(.borderedProminent).tint(accent.color)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.primary.opacity(0.05)))
     }
 }
 

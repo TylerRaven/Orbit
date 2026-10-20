@@ -183,7 +183,8 @@ struct GeneralSettings: View {
             }
             Section("Orbit AI") {
                 LabeledContent("Model") {
-                    Text(Assistant.shared.unavailableReason ?? "Apple Intelligence, on this Mac")
+                    Text(Assistant.shared.isAvailable ? Assistant.shared.engineHelp
+                         : "Not set up — open Orbit AI (⌘J) to set it up")
                         .foregroundStyle(.secondary)
                 }
                 Toggle("Use Private Cloud Compute when available", isOn: $aiCloud)

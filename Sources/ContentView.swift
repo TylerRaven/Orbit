@@ -98,6 +98,13 @@ struct ContentView: View {
 
     private func submit(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
+        if trimmed.hasPrefix("?") && !Assistant.shared.isAvailable {
+            // No AI on this Mac yet: open the panel, which explains how to set it up.
+            Assistant.shared.isOpen = true
+            address = browser.selected?.url?.absoluteString ?? ""
+            focus = nil
+            return
+        }
         if trimmed.hasPrefix("??") {
             // "??question" asks about every tab in this Space.
             Assistant.shared.askAboutTabs(String(trimmed.dropFirst(2)))

@@ -31,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if Browser.shared.tabs.isEmpty { Browser.shared.restoreSession() }
             DefaultBrowser.considerAsking()
             Updater.shared.start()
+            // Without Apple Intelligence, find out whether Ollama can stand in.
+            if !Assistant.shared.appleCouldWork || Assistant.shared.unavailableReason != nil {
+                Task { await Ollama.shared.refresh() }
+            }
         }
     }
 
@@ -119,14 +123,18 @@ struct BrowserCommands: Commands {
                 if tab.isTranslated { Translator.showOriginal(tab) } else { browser.translating = tab }
             }
             .keyboardShortcut("t", modifiers: [.command, .control])
-            Button("Ask AI About All Tabs") {
-                Assistant.shared.isOpen = true
-                Assistant.shared.askAboutTabs("Compare the pages I have open: what each is, how they differ, and which one is best for what.")
+            if Assistant.shared.isAvailable {
+                Button("Ask AI About All Tabs") {
+                    Assistant.shared.isOpen = true
+                    Assistant.shared.askAboutTabs("Compare the pages I have open: what each is, how they differ, and which one is best for what.")
+                }
             }
-            Button("Orbit AI") { Assistant.shared.toggle() }
+            Button(Assistant.shared.isAvailable ? "Orbit AI" : "Set Up Orbit AI…") { Assistant.shared.toggle() }
                 .keyboardShortcut("j")
-            Button("Summarize Page") { Assistant.shared.summarize(browser.selected) }
-                .keyboardShortcut("s", modifiers: [.command, .shift])
+            if Assistant.shared.isAvailable {
+                Button("Summarize Page") { Assistant.shared.summarize(browser.selected) }
+                    .keyboardShortcut("s", modifiers: [.command, .shift])
+            }
             Divider()
             Button("Take Screenshot") { if let tab = browser.selected { Screenshot.take(tab, fullPage: false) } }
                 .keyboardShortcut("2", modifiers: [.command, .shift])

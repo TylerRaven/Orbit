@@ -10,8 +10,8 @@ struct AIMessage: Identifiable, Equatable {
     var isError = false
 }
 
-/// Orbit AI: Apple Intelligence running on this Mac. No server, no API key, nothing leaves the device
-/// (unless Private Cloud Compute is on and available, which is Apple's private cloud).
+/// Orbit AI. Runs on Apple Intelligence when this Mac has it (on-device, or Apple's Private Cloud
+/// Compute when that's on), otherwise on a local Ollama model. Nothing goes to any other server.
 @MainActor
 @Observable
 final class Assistant {
@@ -23,13 +23,14 @@ final class Assistant {
     var status: String?
     private(set) var usingCloud = false
 
-    @ObservationIgnored private var session: LanguageModelSession?
-    @ObservationIgnored private var sessionKey: String?
+    @ObservationIgnored private var chat: ChatEngine?
+    @ObservationIgnored private var chatKey: String?
     @ObservationIgnored private var cloudBroken = false
     @ObservationIgnored private var work: Task<Void, Never>?
 
     private static let onDeviceChars = 6_000     // ~1.5k tokens of a 4k window
     private static let cloudChars = 60_000       // ~15k tokens of a 32k window
+    private static let ollamaChars = 16_000      // ~4k tokens of the 8k window Orbit asks Ollama for
     private static let maxChunks = 6
 
     private static let instructions = """
@@ -41,17 +42,40 @@ final class Assistant {
 
     // MARK: Availability
 
-    /// Why the on-device model can't run, or nil when it's ready.
+    enum Engine: Equatable { case apple, ollama(String) }
+
+    /// What Orbit AI runs on right now, or nil when nothing can (then the panel shows setup).
+    var engine: Engine? {
+        if appleReady { return .apple }
+        if let model = Ollama.shared.model { return .ollama(model) }
+        return nil
+    }
+
+    var isAvailable: Bool { engine != nil }
+
+    private var appleReady: Bool {
+        // ORBIT_AI_ENGINE=ollama tries the Ollama path on a Mac that also has Apple Intelligence.
+        if ProcessInfo.processInfo.environment["ORBIT_AI_ENGINE"] == "ollama" { return false }
+        return unavailableReason == nil || cloudAvailable
+    }
+
+    /// Why Apple Intelligence can't run, or nil when it's ready.
     var unavailableReason: String? {
         guard case .unavailable(let reason) = SystemLanguageModel.default.availability else { return nil }
         if reason == .appleIntelligenceNotEnabled {
-            return "Turn on Apple Intelligence in System Settings to use Orbit AI."
+            return "Apple Intelligence is turned off on this Mac."
         } else if reason == .modelNotReady {
-            return "Apple Intelligence is still getting ready. Try again in a little while."
+            return "Apple Intelligence is still getting ready."
         } else if reason == .deviceNotEligible {
             return "This Mac doesn't support Apple Intelligence."
         }
         return "Apple Intelligence isn't available right now."
+    }
+
+    /// Apple Intelligence could work here once it's switched on or finishes downloading.
+    var appleCouldWork: Bool {
+        guard case .unavailable(let reason) = SystemLanguageModel.default.availability else { return true }
+        return reason == .appleIntelligenceNotEnabled || reason == .modelNotReady
     }
 
     private var cloudAvailable: Bool {
@@ -60,17 +84,42 @@ final class Assistant {
         return false
     }
 
-    var modelLabel: String { usingCloud ? "Private Cloud" : "On-device" }
+    var modelLabel: String {
+        switch engine {
+        case .apple?: usingCloud ? "Private Cloud" : "On-device"
+        case .ollama(let m)?: m
+        case nil: "Setup"
+        }
+    }
+
+    var engineHelp: String {
+        switch engine {
+        case .apple?: usingCloud ? "Apple Private Cloud Compute" : "Apple Intelligence, on this Mac"
+        case .ollama?: "Ollama, running on this Mac"
+        case nil: "No AI model on this Mac yet"
+        }
+    }
+
+    /// How much page text fits in one go for the current engine.
+    private var pageLimit: Int {
+        switch engine {
+        case .ollama?: Self.ollamaChars
+        default: cloudAvailable ? Self.cloudChars : Self.onDeviceChars
+        }
+    }
 
     // MARK: Public actions
 
-    func toggle() { isOpen.toggle() }
+    func toggle() {
+        isOpen.toggle()
+        if isOpen && !appleReady { Task { await Ollama.shared.refresh() } }
+    }
 
     func reset() {
         work?.cancel()
         messages = []
-        session = nil
-        sessionKey = nil
+        chat = nil
+        chatKey = nil
         isBusy = false
         status = nil
     }
@@ -96,7 +145,7 @@ final class Assistant {
     }
 
     private func answerAcrossTabs(_ question: String, tabs: [Tab]) async {
-        if unavailableReason != nil && !cloudAvailable { return fail(unavailableReason!) }
+        guard isAvailable else { return fail(Self.noAIMessage) }
         let picked = Array(tabs.prefix(8))
         guard picked.count > 1 else { return fail("Open a couple of pages in this Space first, then I can compare them.") }
         status = "Reading \(picked.count) tabs…"
@@ -105,26 +154,20 @@ final class Assistant {
             if let page = await PageText.read(tab), !page.text.isEmpty { pages.append(page) }
         }
         status = nil
-        var budget = (cloudAvailable ? Self.cloudChars : Self.onDeviceChars) / max(1, pages.count)
+        var budget = pageLimit / max(1, pages.count)
         for attempt in 0..<3 {
             var text = Self.instructions + "\n\nThe user has these pages open. Refer to them by their titles.\n"
             for (i, page) in pages.enumerated() {
                 text += "\n<page number=\"\(i + 1)\" title=\"\(page.title)\" url=\"\(page.url)\">\n\(page.text.prefix(budget))\n</page>\n"
             }
-            if cloudAvailable, #available(macOS 27, *) {
-                usingCloud = true
-                session = LanguageModelSession(model: PrivateCloudComputeLanguageModel(), instructions: text)
-            } else {
-                usingCloud = false
-                session = LanguageModelSession(instructions: text)
-            }
-            sessionKey = "tabs:" + pages.map(\.url).joined(separator: "|")
+            chat = makeChat(instructions: text)
+            chatKey = "tabs:" + pages.map(\.url).joined(separator: "|")
             do {
                 try await stream(question)
                 return
             } catch where usingCloud && attempt < 2 {
                 cloudBroken = true // Private Cloud refused: fall back to the on-device model
-                budget = Self.onDeviceChars / max(1, pages.count)
+                budget = pageLimit / max(1, pages.count)
                 setLast("")
             } catch where Self.isContextOverflow(error) && attempt < 2 {
                 budget /= 2 // too much to read at once: take less of each page and try again
@@ -143,6 +186,8 @@ final class Assistant {
 
     // MARK: Engine
 
+    private static let noAIMessage = "Orbit AI isn't set up on this Mac yet."
+
     private func start(_ userText: String, _ job: @escaping () async -> Void) {
         isOpen = true
         messages.append(AIMessage(fromUser: true, text: userText))
@@ -156,49 +201,50 @@ final class Assistant {
     }
 
     private func answer(_ question: String, tab: Tab?) async {
-        if unavailableReason != nil && !cloudAvailable { return fail(unavailableReason!) }
+        guard isAvailable else { return fail(Self.noAIMessage) }
         status = tab?.isBlank == false ? "Reading the page…" : nil
         let page = await PageText.read(tab)
         let key = page?.url ?? "general"
-        if session == nil || sessionKey != key {
-            session = makeSession(page: page)
-            sessionKey = key
+        if chat == nil || chatKey != key {
+            chat = makeChat(page: page)
+            chatKey = key
         }
         status = nil
         await streamWithRecovery(question, page: page)
     }
 
     private func summary(_ tab: Tab?) async {
-        if unavailableReason != nil && !cloudAvailable { return fail(unavailableReason!) }
+        guard isAvailable else { return fail(Self.noAIMessage) }
         status = "Reading the page…"
         guard let page = await PageText.read(tab), !page.text.isEmpty else {
             return fail("Open a page first, then I can summarize it.")
         }
         let prompt = "Summarize this page in 4–6 short bullet points, then one line on why it matters."
-        let limit = cloudAvailable ? Self.cloudChars : Self.onDeviceChars
+        let limit = pageLimit
 
         if page.text.count <= limit {
-            session = makeSession(page: page)
-            sessionKey = page.url
+            chat = makeChat(page: page)
+            chatKey = page.url
             status = nil
             return await streamWithRecovery(prompt, page: page)
         }
 
-        // Too long for the on-device window: read it in parts, then combine the notes.
-        let chunks = PageText.chunks(page.text, size: Self.onDeviceChars)
+        // Too long for the model's window: read it in parts, then combine the notes.
+        let chunks = PageText.chunks(page.text, size: limit)
         let parts = Array(chunks.prefix(Self.maxChunks))
         var notes: [String] = []
         do {
             for (i, part) in parts.enumerated() {
                 try Task.checkCancellation()
                 status = "Reading part \(i + 1) of \(parts.count)…"
-                let reader = LanguageModelSession(instructions: Self.instructions)
-                let r = try await reader.respond(to: """
+                let reader = makeChat(instructions: Self.instructions)
+                var note = ""
+                for try await text in reader.stream("""
                     This is part \(i + 1) of the page “\(page.title)”. List its key points in 2–3 short bullets.
 
                     \(part)
-                    """)
-                notes.append(r.content)
+                    """) { note = text }
+                notes.append(note)
             }
         } catch {
             return fail(Self.describe(error))
@@ -207,19 +253,18 @@ final class Assistant {
         status = "Writing the summary…"
         let digest = PageText(url: page.url, title: page.title,
                               text: notes.joined(separator: "\n"))
-        session = makeSession(page: digest, isDigest: true)
-        sessionKey = page.url
+        chat = makeChat(page: digest, isDigest: true)
+        chatKey = page.url
         if chunks.count > parts.count {
-            append("_Long page: this covers roughly the first \(parts.count * Self.onDeviceChars / 1000)k characters._\n\n")
+            append("_Long page: this covers roughly the first \(parts.count * limit / 1000)k characters._\n\n")
         }
         status = nil
         await streamWithRecovery(prompt, page: digest)
     }
 
-    private func makeSession(page: PageText?, isDigest: Bool = false) -> LanguageModelSession {
+    private func makeChat(page: PageText?, isDigest: Bool = false) -> ChatEngine {
         var text = Self.instructions
         if let page {
-            let limit = cloudAvailable ? Self.cloudChars : Self.onDeviceChars
             text += """
 
 
@@ -227,29 +272,37 @@ final class Assistant {
             Title: \(page.title)
             URL: \(page.url)
             <page>
-            \(page.text.prefix(limit))
+            \(page.text.prefix(pageLimit))
             </page>
             """
         }
+        return makeChat(instructions: text)
+    }
+
+    private func makeChat(instructions: String) -> ChatEngine {
+        if case .ollama(let model)? = engine {
+            usingCloud = false
+            return OllamaChat(model: model, instructions: instructions)
+        }
         if cloudAvailable, #available(macOS 27, *) {
             usingCloud = true
-            return LanguageModelSession(model: PrivateCloudComputeLanguageModel(), instructions: text)
+            return AppleChat(LanguageModelSession(model: PrivateCloudComputeLanguageModel(), instructions: instructions))
         }
         usingCloud = false
-        return LanguageModelSession(instructions: text)
+        return AppleChat(LanguageModelSession(instructions: instructions))
     }
 
     /// Streams a reply into the last message. If the chat outgrew the model's window, starts a
-    /// fresh session with the same page and retries; if the cloud model fails, falls back to on-device.
+    /// fresh chat with the same page and retries; if the cloud model fails, falls back to on-device.
     private func streamWithRecovery(_ prompt: String, page: PageText?) async {
         do {
             try await stream(prompt)
         } catch where Self.isContextOverflow(error) {
-            session = makeSession(page: page)
+            chat = makeChat(page: page)
             do { try await stream(prompt) } catch { fail(Self.describe(error)) }
         } catch where usingCloud {
             cloudBroken = true
-            session = makeSession(page: page)
+            chat = makeChat(page: page)
             do { try await stream(prompt) } catch { fail(Self.describe(error)) }
         } catch is CancellationError {
             return
@@ -259,11 +312,11 @@ final class Assistant {
     }
 
     private func stream(_ prompt: String) async throws {
-        guard let session else { return }
+        guard let chat else { return }
         let prefix = messages.last?.text ?? ""
-        for try await snapshot in session.streamResponse(to: prompt) {
+        for try await text in chat.stream(prompt) {
             try Task.checkCancellation()
-            setLast(prefix + snapshot.content)
+            setLast(prefix + text)
         }
     }
 
@@ -290,6 +343,7 @@ final class Assistant {
     }
 
     private static func describe(_ error: Error) -> String {
+        if let e = error as? OllamaError { return e.message }
         if let e = error as? LanguageModelSession.GenerationError {
             switch e {
             case .guardrailViolation: return "Apple's model won't help with that one."
@@ -298,7 +352,74 @@ final class Assistant {
             default: break
             }
         }
+        if (error as? URLError)?.code == .cannotConnectToHost {
+            return "Ollama isn't running. Open the Ollama app, then try again."
+        }
         return "Something went wrong: \(error.localizedDescription)"
+    }
+}
+
+/// One conversation with a model; `stream` yields the whole reply so far each time.
+@MainActor
+protocol ChatEngine: AnyObject {
+    func stream(_ prompt: String) -> AsyncThrowingStream<String, Error>
+}
+
+/// Apple Intelligence: the session keeps the conversation itself.
+@MainActor
+final class AppleChat: ChatEngine {
+    private let session: LanguageModelSession
+    init(_ session: LanguageModelSession) { self.session = session }
+
+    func stream(_ prompt: String) -> AsyncThrowingStream<String, Error> {
+        let session = session
+        return AsyncThrowingStream { continuation in
+            let task = Task { @MainActor in
+                do {
+                    for try await snapshot in session.streamResponse(to: prompt) {
+                        continuation.yield(snapshot.content)
+                    }
+                    continuation.finish()
+                } catch {
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+}
+
+/// Ollama: Orbit keeps the conversation and sends it with each question.
+@MainActor
+final class OllamaChat: ChatEngine {
+    private let model: String
+    private var history: [[String: String]]
+
+    init(model: String, instructions: String) {
+        self.model = model
+        history = [["role": "system", "content": instructions]]
+    }
+
+    func stream(_ prompt: String) -> AsyncThrowingStream<String, Error> {
+        history.append(["role": "user", "content": prompt])
+        let upstream = Ollama.chat(model: model, messages: history)
+        return AsyncThrowingStream { continuation in
+            let task = Task { @MainActor in
+                var reply = ""
+                do {
+                    for try await text in upstream {
+                        reply = text
+                        continuation.yield(text)
+                    }
+                    self.history.append(["role": "assistant", "content": reply])
+                    continuation.finish()
+                } catch {
+                    self.history.removeLast() // drop the unanswered question
+                    continuation.finish(throwing: error)
+                }
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
     }
 }
 
@@ -343,6 +464,7 @@ struct PageText {
 final class OrbitWebView: WKWebView {
     override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
         super.willOpenMenu(menu, with: event)
+        guard Assistant.shared.isAvailable else { return }
         let explain = NSMenuItem(title: "Ask Orbit AI About Selection", action: #selector(askAboutSelection), keyEquivalent: "")
         let summarize = NSMenuItem(title: "Summarize Page with Orbit AI", action: #selector(summarizePage), keyEquivalent: "")
         explain.target = self
