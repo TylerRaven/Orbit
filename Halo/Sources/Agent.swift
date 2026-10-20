@@ -470,6 +470,10 @@ final class Agent {
         return Result(text: "\(text) \(contextLine())")
     }
 
+    func noteUpdate(_ text: String) {
+        messages.append(ChatMessage(role: .note, text: text, symbol: "arrow.down.circle"))
+    }
+
     private func note(_ symbol: String, _ text: String) {
         messages.append(ChatMessage(role: .step, text: text, symbol: symbol))
     }

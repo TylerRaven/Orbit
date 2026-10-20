@@ -321,6 +321,15 @@ private struct SettingsView: View {
                     Toggle("Show a coordinate grid to the model (more accurate clicks)", isOn: bind(\.showGrid))
                         .font(.system(size: 12))
                 }
+                section("Updates") {
+                    Toggle("Update Halo automatically", isOn: Binding(get: { Updater.shared.auto }, set: { Updater.shared.auto = $0 }))
+                        .font(.system(size: 12))
+                    HStack {
+                        Text("Halo \(Updater.currentVersion) · \(updateStatus)").font(.system(size: 11)).foregroundStyle(.secondary)
+                        Spacer()
+                        Button("Check now") { Task { await Updater.shared.check() } }.buttonStyle(.glass).controlSize(.small)
+                    }
+                }
                 section("Shortcuts") {
                     Text("⌥Space  show or hide Halo\n⌥Esc  stop whatever Halo is doing")
                         .font(.system(size: 12, design: .monospaced)).foregroundStyle(.secondary)
@@ -339,6 +348,18 @@ private struct SettingsView: View {
                 }
             }
             .padding(16)
+        }
+    }
+
+    private var updateStatus: String {
+        switch Updater.shared.status {
+        case .idle: "updates on"
+        case .checking: "checking…"
+        case .upToDate: "up to date"
+        case .notSetUp: "no update source"
+        case .downloading(let v): "downloading \(v)…"
+        case .ready(let v): "\(v) installs when idle"
+        case .failed(let m): m
         }
     }
 

@@ -22,6 +22,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ChatWindow.shared.build()
         Dodger.shared.start()
         Agent.shared.start()
+        Updater.shared.start()
+        let last = UserDefaults.standard.string(forKey: "lastVersion")
+        if let last, last != Updater.currentVersion {
+            Agent.shared.noteUpdate("Halo updated itself to \(Updater.currentVersion).")
+        }
+        UserDefaults.standard.set(Updater.currentVersion, forKey: "lastVersion")
         Agent.shared.onNotice = { text in
             // Speak up quietly when the chat is tucked away.
             if !ChatWindow.shared.isVisible {
